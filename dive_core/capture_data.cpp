@@ -270,11 +270,35 @@ void MemoryManager::Finalize(bool same_submit_copy_only, bool duplicate_ib_captu
             }
             else
             {
-                if (memory_block.m_va_addr != prev_addr || memory_block.m_data_size != prev_size)
+                // Check if it's a completely new block
+                if (memory_block.m_va_addr >= (prev_addr + prev_size))
                     temp_memory_blocks.push_back(memory_block);
                 else
                 {
-                    // Replace previous memory block with the more updated current version
+                    // It's EITHER a new block or it has the same address as the previous block
+                    // (i.e. whole or partial overwrite). There should be no partial overlap
+                    DIVE_ASSERT(memory_block.m_va_addr == prev_addr);
+
+                    // There's an overlap. If it's a partial overlap, then merge the data together
+                    uint32_t size = (memory_block.m_data_size >
+                                     temp_memory_blocks.back().m_data_size) ?
+                                    memory_block.m_data_size :
+                                    temp_memory_blocks.back().m_data_size;
+                    uint8_t *new_data_block = new uint8_t[size];
+
+                    // Copy earlier block first
+                    memcpy(new_data_block,
+                           temp_memory_blocks.back().m_data_ptr,
+                           temp_memory_blocks.back().m_data_size);
+
+                    // Copy current block
+                    memcpy(new_data_block, memory_block.m_data_ptr, memory_block.m_data_size);
+
+                    // Replace current memory block's data with the updated data
+                    delete[] m_memory_blocks[i].m_data_ptr;
+                    m_memory_blocks[i].m_data_ptr = new_data_block;
+
+                    // Now get rid of the previous memory block
                     delete[] temp_memory_blocks.back().m_data_ptr;
                     temp_memory_blocks.back() = m_memory_blocks[i];
                 }
