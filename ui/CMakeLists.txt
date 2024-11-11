@@ -34,7 +34,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 
 # Find the QtWidgets library
-find_package(Qt5Widgets CONFIG REQUIRED)
+find_package(Qt6Widgets CONFIG REQUIRED)
 
 file(GLOB_RECURSE HDR_FILES "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
 file(GLOB_RECURSE SRC_FILES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
@@ -59,8 +59,8 @@ include_directories(
 # Tell CMake to create the Dive executable
 add_executable(${PROJECT_NAME} WIN32 ${HDR_FILES} ${SRC_FILES} ${COMMON_HDR_FILES} ${COMMON_SRC_FILES} resources.qrc)
 
-# Use the Widgets module from Qt 5
-target_link_libraries(${PROJECT_NAME} Qt5::Widgets)
+# Use the Widgets module from Qt 6
+target_link_libraries(${PROJECT_NAME} Qt6::Widgets)
 
 target_link_libraries(${PROJECT_NAME} dive_core device_mgr client)
 # std::filesystem needs to link with libstdc++fs for g++ before 9.0

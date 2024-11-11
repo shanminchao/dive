@@ -28,7 +28,6 @@
 #include <QTabWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
-#include <QtWidgets/QDesktopWidget>
 #include <QtWidgets>
 #include <chrono>
 #include <cstdlib>

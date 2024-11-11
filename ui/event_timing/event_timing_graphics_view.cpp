@@ -63,5 +63,5 @@ void EventTimingGraphicsView::wheelEvent(QWheelEvent *event)
     // Only deal with y-axis ones (ie. mouse wheels)
     if (event->angleDelta().y() == 0)
         return;
-    emit OnMouseWheel(event->pos(), event->angleDelta().y());
+    emit OnMouseWheel(event->position().toPoint(), event->angleDelta().y());
 }

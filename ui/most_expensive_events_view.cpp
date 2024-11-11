@@ -61,9 +61,10 @@ private:
             QLocale c(QLocale::system());
 
             bool   ok;
-            double left = c.toDouble(text(column).remove(QRegExp("\\s*\\D+$")), &ok);
+            double left = c.toDouble(text(column).remove(QRegularExpression("\\s*\\D+$")), &ok);
             DIVE_ASSERT(ok);
-            double right = c.toDouble(other.text(column).remove(QRegExp("\\s*\\D+$")), &ok);
+            double right = c.toDouble(other.text(column).remove(QRegularExpression("\\s*\\D+$")),
+                                      &ok);
             DIVE_ASSERT(ok);
             return left < right;
         }

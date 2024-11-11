@@ -20,6 +20,7 @@
 #include <QPainter>
 #include <QTextStream>
 #include <QTransform>
+#include <QLocale>
 #include "dive_core/common.h"
 #include "dive_core/conversions.h"
 

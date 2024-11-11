@@ -111,16 +111,16 @@ void PropertyPanel::resizeEvent(QResizeEvent* event)
 //--------------------------------------------------------------------------------------------------
 void PropertyPanel::OnLinkActivated(const QString& link)
 {
-    if (link.startsWith("#shader-"))
-    {
-        QStringRef addr_str(&link,
-                            (sizeof("#shader-") - 1),
-                            link.size() - (sizeof("#shader-") - 1));
-        bool       ok = false;
-        uint64_t   addr = addr_str.toULongLong(&ok, 16);
-        if (ok)
-        {
-            emit crossReference(Dive::CrossRef(Dive::CrossRefType::kShaderAddress, addr));
-        }
-    }
+    //if (link.startsWith("#shader-"))
+    //{
+    //    QStringRef addr_str(&link,
+    //                        (sizeof("#shader-") - 1),
+    //                        link.size() - (sizeof("#shader-") - 1));
+    //    bool       ok = false;
+    //    uint64_t   addr = addr_str.toULongLong(&ok, 16);
+    //    if (ok)
+    //    {
+    //        emit crossReference(Dive::CrossRef(Dive::CrossRefType::kShaderAddress, addr));
+    //    }
+    //}
 }

@@ -45,6 +45,6 @@ signals:
                    uint32_t        param3 = UINT32_MAX,
                    const char *    custom_string = nullptr);
 protected slots:
-    void enterEvent(QEvent *event);
+    void enterEvent(QEnterEvent *event);
     void leaveEvent(QEvent *event);
 };
