@@ -615,6 +615,28 @@ bool MainWindow::LoadFile(const char *file_name, bool is_temp_file)
                            std::chrono::steady_clock::now() - begin)
                            .count();
 
+    extern uint64_t g_vector_copy_const;
+    extern uint64_t g_vector_move_const;
+    extern uint64_t g_vector_dest;
+    extern uint64_t g_vector_ass;
+    extern uint64_t g_vector_index_op;
+    extern uint64_t g_vector_clear;
+    extern uint64_t g_vector_resize_1;
+    extern uint64_t g_vector_resize_2;
+    extern uint64_t g_reserve_1;
+    extern uint64_t g_reserve_2;
+    std::cout << "g_vector_copy_const: " << g_vector_copy_const << std::endl;
+    std::cout << "g_vector_move_const: " << g_vector_move_const << std::endl;
+    std::cout << "g_vector_dest: " << g_vector_dest << std::endl;
+    std::cout << "g_vector_ass: " << g_vector_ass << std::endl;
+    std::cout << "g_vector_index_op: " << g_vector_index_op << std::endl;
+    std::cout << "g_vector_clear: " << g_vector_clear << std::endl;
+    std::cout << "g_vector_resize_1: " << g_vector_resize_1 << std::endl;
+    std::cout << "g_vector_resize_2: " << g_vector_resize_2 << std::endl;
+    std::cout << "g_reserve_1: " << g_reserve_1 << std::endl;
+    std::cout << "g_reserve_2: " << g_reserve_2 << std::endl;
+
+    std::cout << "(RELEASE) Time used to load the capture is " << time_used_to_load_ms / 1000.0 << " seconds." << std::endl;
     DIVE_DEBUG_LOG("Time used to load the capture is %f seconds.", (time_used_to_load_ms / 1000.0));
 
     FileLoaded();

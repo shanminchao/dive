@@ -13,6 +13,32 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 */
+
+extern uint64_t g_vector_copy_const;
+extern uint64_t g_vector_move_const;
+extern uint64_t g_vector_dest;
+extern uint64_t g_vector_ass;
+extern uint64_t g_vector_index_op;
+extern uint64_t g_vector_clear;
+extern uint64_t g_vector_resize_1;
+extern uint64_t g_vector_resize_2;
+extern uint64_t g_reserve_1;
+extern uint64_t g_reserve_2;
+
+// BIG WINS
+// Added std::move in the reserve function, allows big internal vectors to be move-constructed rather than copy-constructed
+//      This is the only MAJOR difference between stock and current implementation
+// resize without a copy. The old resize() took in a 2nd parameter. Made a new version that just has 1 paramter
+
+// Add a push_back with (&&) (pushing memory blocks!!!)
+// 	emplace_back(std::move(a));
+
+// Vector<Type>::Vector(uint64_t size)
+//  Got rid of the 2nd paramter that takes in a temporary object
+// 	To avoid calling the resize that takes a temporary object
+
+
+
 namespace Dive
 {
 
@@ -35,6 +61,7 @@ Vector<Type>::Vector(Vector &&a) :
     a.m_buffer = nullptr;
     a.m_reserved = 0;
     a.m_size = 0;
+    g_vector_move_const++;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -48,6 +75,7 @@ Vector<Type>::Vector(const Vector &a) :
     reserve(a.m_size);
     m_size = a.m_size;
     std::copy(a.m_buffer, a.m_buffer + a.m_size, m_buffer);
+    g_vector_copy_const++;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -75,6 +103,7 @@ template<class Type> Vector<Type>::Vector(std::initializer_list<Type> a)
 //--------------------------------------------------------------------------------------------------
 template<class Type> Vector<Type>::~Vector()
 {
+    g_vector_dest++;
     internal_clear();
 }
 
@@ -82,6 +111,7 @@ template<class Type> Vector<Type>::~Vector()
 template<class Type> Type &Vector<Type>::operator[](uint64_t i) const
 {
     DIVE_ASSERT(i < m_size);
+    g_vector_index_op++;
     return m_buffer[i];
 }
 
@@ -93,6 +123,7 @@ template<class Type> Vector<Type> &Vector<Type>::operator=(const Vector<Type> &a
     reserve(a.m_size);
     m_size = a.m_size;
     std::copy(a.m_buffer, a.m_buffer + a.m_size, m_buffer);
+    g_vector_ass++;
     return *this;
 }
 
@@ -175,6 +206,7 @@ template<class Type> void Vector<Type>::resize(uint64_t size)
     for (uint64_t i = m_size; i < size; ++i)
         new (&m_buffer[i]) Type();
     m_size = size;
+    g_vector_resize_1++;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -186,13 +218,17 @@ template<class Type> void Vector<Type>::resize(uint64_t size, const Type &a)
     for (uint64_t i = m_size; i < size; ++i)
         new (&m_buffer[i]) Type(a);
     m_size = size;
+    g_vector_resize_2++;
 }
 
 //--------------------------------------------------------------------------------------------------
 template<class Type> void Vector<Type>::reserve(uint64_t size)
 {
+    g_reserve_1++;
     if (size > m_reserved)
     {
+        g_reserve_2++;
+
         // Round up to nearest power of 2
         m_reserved = size;
         m_reserved--;
@@ -228,6 +264,7 @@ template<class Type> void Vector<Type>::reserve(uint64_t size)
 template<class Type> void Vector<Type>::clear()
 {
     internal_clear();
+    g_vector_clear++;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -246,6 +283,76 @@ template<class Type> void Vector<Type>::internal_clear()
     m_buffer = nullptr;
     m_reserved = 0;
     m_size = 0;
+}
+
+//--------------------------------------------------------------------------------------------------
+template<class Type>
+StlVector<Type>::StlVector(StlVector<Type> &&a) :
+    std::vector<Type>(a)
+{
+    g_vector_move_const++;
+}
+//--------------------------------------------------------------------------------------------------
+template<class Type>
+StlVector<Type>::StlVector(const StlVector<Type> &a) :
+    std::vector<Type>(a)
+{
+    g_vector_copy_const++;
+}
+
+//--------------------------------------------------------------------------------------------------
+template<class Type> StlVector<Type>::~StlVector()
+{
+    g_vector_dest++;
+}
+
+//--------------------------------------------------------------------------------------------------
+template<class Type> StlVector<Type> &StlVector<Type>::operator=(const StlVector<Type> &a)
+{
+    g_vector_ass++;
+    std::vector<Type>::operator=(a);
+    return *this;
+}
+
+//--------------------------------------------------------------------------------------------------
+template<class Type> Type &StlVector<Type>::operator[](uint64_t i)
+{
+    g_vector_index_op++;
+    return std::vector<Type>::operator[](i);
+}
+
+//--------------------------------------------------------------------------------------------------
+template<class Type> const Type &StlVector<Type>::operator[](uint64_t i) const
+{
+    g_vector_index_op++;
+    return std::vector<Type>::operator[](i);
+}
+//--------------------------------------------------------------------------------------------------
+template<class Type> void StlVector<Type>::resize(uint64_t size)
+{
+    g_vector_resize_1++;
+    std::vector<Type>::resize(size);
+}
+
+//--------------------------------------------------------------------------------------------------
+template<class Type> void StlVector<Type>::resize(uint64_t size, const Type &a)
+{
+    g_vector_resize_2++;
+    std::vector<Type>::resize(size, a);
+}
+
+//--------------------------------------------------------------------------------------------------
+template<class Type> void StlVector<Type>::reserve(uint64_t size)
+{
+    g_reserve_1++;
+    std::vector<Type>::reserve(size);
+}
+
+//--------------------------------------------------------------------------------------------------
+template<class Type> void StlVector<Type>::clear()
+{
+    g_vector_clear++;
+    std::vector<Type>::clear();
 }
 
 }  // namespace Dive

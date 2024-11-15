@@ -23,6 +23,7 @@
 #include "dive_core/pm4_info.h"
 #include "main_window.h"
 #include "version.h"
+#include "dive_core/stl_replacement.h"
 #ifdef __linux__
 #    include <dlfcn.h>
 #endif
@@ -79,9 +80,62 @@ void setDarkMode(QApplication &app)
     QApplication::setPalette(darkPalette);
 }
 
+uint32_t g_const = 0;
+uint32_t g_copy_const = 0;
+uint32_t g_move_const = 0;
+uint32_t g_dest = 0;
+uint32_t g_ass = 0;
+class MyClass
+{
+public:
+    MyClass() {
+        g_const++;
+    }
+    MyClass(const MyClass &a) {
+        g_copy_const++;
+    }
+    MyClass(const MyClass &&a) {
+        g_move_const++;
+    }
+    ~MyClass() {
+        g_dest++;
+    }
+    MyClass &operator=(const MyClass &a)
+    {
+        g_ass++;
+        return *this;
+    }
+};
 //--------------------------------------------------------------------------------------------------
 int main(int argc, char *argv[])
 {
+    // {
+    //     DiveVector<MyClass> myvector;
+    //     unsigned int capacity = myvector.capacity();
+
+    //     for(unsigned int i = 0; i <  100000; ++i) {
+
+    //         MyClass temp;
+
+    //         myvector.resize(myvector.size() + 1);
+    //         myvector[myvector.size() - 1] = temp;
+
+
+    //         // myvector.push_back(temp);
+    //         if(capacity != myvector.capacity())
+    //         {
+    //             capacity = myvector.capacity();
+    //             std::cout << myvector.capacity() << std::endl;
+    //         }
+    //     }
+    // }
+
+    // std::cout << "g_const: " << g_const << std::endl;
+    // std::cout << "g_copy_const: " << g_copy_const << std::endl;
+    // std::cout << "g_move_const: " << g_move_const << std::endl;
+    // std::cout << "g_dest: " << g_dest << std::endl;
+    // std::cout << "g_ass: " << g_ass << std::endl;
+
     // Check number of arguments
     if (argc != 1 && argc != 2)
         return 0;

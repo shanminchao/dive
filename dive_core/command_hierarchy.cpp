@@ -31,6 +31,18 @@
 #include "log.h"
 #include "pm4_info.h"
 
+uint64_t g_vector_copy_const = 0;
+uint64_t g_vector_move_const = 0;
+uint64_t g_vector_dest = 0;
+uint64_t g_vector_ass = 0;
+uint64_t g_vector_index_op = 0;
+uint64_t g_vector_clear = 0;
+uint64_t g_vector_resize_1 = 0;
+uint64_t g_vector_resize_2 = 0;
+uint64_t g_reserve_1 = 0;
+uint64_t g_reserve_2 = 0;
+
+
 namespace Dive
 {
 // =================================================================================================

@@ -65,10 +65,30 @@ private:
     uint64_t m_size;
 };
 
+template<class Type> class StlVector : public std::vector<Type>
+{
+    using std::vector<Type>::vector;
+public:
+    StlVector(StlVector<Type> &&a);
+    StlVector(const StlVector<Type> &a);
+    ~StlVector();
+    StlVector<Type> &operator=(const StlVector<Type> &a);
+    Type &operator[](uint64_t i);
+    const Type &operator[](uint64_t i) const;
+    void resize(uint64_t size);
+    void resize(uint64_t size, const Type &a);
+    void reserve(uint64_t size);
+    void clear();
+};
+
+
 }  // namespace Dive
 
 #include "stl_replacement.hpp"
 
 template<typename T>
 // using DiveVector = std::vector<T>;
-using DiveVector = Dive::Vector<T>;
+
+
+using DiveVector = Dive::StlVector<T>;
+//using DiveVector = Dive::Vector<T>;
