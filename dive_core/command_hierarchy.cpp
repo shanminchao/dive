@@ -2253,7 +2253,7 @@ public:
         int64_t timeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - m_begin)
                             .count();
-        FILE *shanFile = fopen("/usr/local/google/home/shanminchao/src/shan.txt", "a");
+        FILE *shanFile = fopen("c:/src/shan.txt", "a");
         fprintf(shanFile, "\t%s: %f s.\n", m_desc.c_str(), (timeMs / 1000.0));
         fclose(shanFile);
     }
@@ -2261,8 +2261,10 @@ private:
     std::string m_desc;
     std::chrono::steady_clock::time_point m_begin;
 };
-#define SHAN_TIMER(a) ShanTimer obj##__LINE__(a)
-bool g_timeResize = false;
+#define SHAN_INTERNAL2(a, b) ShanTimer ob##b(a)
+#define SHAN_INTERNAL1(a, b) SHAN_INTERNAL2(a,b)
+#define SHAN_TIMER(a) SHAN_INTERNAL1(a, __COUNTER__)
+bool     g_timeResize = false;
 int64_t g_time_used_to_load_ms = 0;
 uint64_t g_num_times = 0;
 uint64_t g_num_reserves = 0;
@@ -2298,7 +2300,7 @@ void CommandHierarchyCreator::CreateTopologies()
     size_t                         num_nodes = m_node_children[src_topology][0].size();
     DIVE_ASSERT(num_nodes == m_node_children[src_topology][1].size());
     {
-    sprintf(buffer, "Loop1, PRE Num reserves %ld", g_num_reserves);
+    sprintf(buffer, "Loop1, PRE Num reserves %llu", g_num_reserves);
     SHAN_TIMER(buffer);
     for (size_t node_index = 0; node_index < num_nodes; ++node_index)
     {
@@ -2346,7 +2348,7 @@ void CommandHierarchyCreator::CreateTopologies()
     DIVE_ASSERT(num_nodes == m_node_children[src_topology][1].size());
 
     {
-    sprintf(buffer, "Loop2, PRE Num reserves %ld", g_num_reserves);
+    sprintf(buffer, "Loop2, PRE Num reserves %llu", g_num_reserves);
     SHAN_TIMER(buffer);
     for (size_t node_index = 0; node_index < num_nodes; ++node_index)
     {
@@ -2403,12 +2405,12 @@ void CommandHierarchyCreator::CreateTopologies()
 
     uint64_t temp = 0;
     {
-    sprintf(buffer, "Loop3, PRE Num reserves %ld", g_num_reserves);
+    sprintf(buffer, "Loop3, PRE Num reserves %llu", g_num_reserves);
     SHAN_TIMER(buffer);
     // Convert the m_node_children temporary structure into CommandHierarchy's topologies
     for (uint32_t topology = 0; topology < CommandHierarchy::kTopologyTypeCount; ++topology)
     {
-        sprintf(buffer, "Loop3, topology %d, PRE Num reserves %ld", topology, g_num_reserves);
+        sprintf(buffer, "Loop3, topology %d, PRE Num reserves %llu", topology, g_num_reserves);
         SHAN_TIMER(buffer);
         num_nodes = m_node_children[topology][0].size();
         Topology &cur_topology = m_command_hierarchy_ptr->m_topology[topology];
@@ -2440,7 +2442,7 @@ void CommandHierarchyCreator::CreateTopologies()
         }
 
         {
-        sprintf(buffer, "\tLoop3, topology %d, node %lu loop", topology, num_nodes);
+        sprintf(buffer, "\tLoop3, topology %d, node %llu loop", topology, num_nodes);
         SHAN_TIMER(buffer);
 
         for (uint64_t node_index = 0; node_index < num_nodes; ++node_index)
@@ -2464,9 +2466,9 @@ void CommandHierarchyCreator::CreateTopologies()
     g_timeResize = false;
 
 
-    FILE *shanFile = fopen("/usr/local/google/home/shanminchao/src/shan.txt", "a");
-    fprintf(shanFile, "\tTime used for resize is %f s. (%ld, %ld)\n", (g_time_used_to_load_ms / 1000.0), temp, g_num_times);
-    fprintf(shanFile, "\tNum Reserves: %ld\n", g_num_reserves);
+    FILE *shanFile = fopen("c:/src/shan.txt", "a");
+    fprintf(shanFile, "\tTime used for resize is %f s. (%llu, %llu)\n", (g_time_used_to_load_ms / 1000.0), temp, g_num_times);
+    fprintf(shanFile, "\tNum Reserves: %llu\n", g_num_reserves);
     fclose(shanFile);
 }
 
