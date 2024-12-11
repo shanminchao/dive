@@ -15,6 +15,7 @@
 */
 #include <algorithm>
 #include "common/common.h"
+#include <chrono>
 
 namespace Dive
 {
@@ -195,10 +196,14 @@ template<class Type> template<typename... Args> void Vector<Type>::emplace_back(
     new (m_buffer + m_size) Type(std::forward<Args>(args)...);
     ++m_size;
 }
-
+extern bool g_timeResize;
+extern int64_t g_time_used_to_load_ms;
+extern uint64_t g_num_times;
+extern uint64_t g_num_reserves;
 //--------------------------------------------------------------------------------------------------
 template<class Type> void Vector<Type>::resize(uint64_t size)
 {
+    //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
     reserve(size);
 
     if (!std::is_trivially_constructible<Type>::value)
@@ -208,17 +213,35 @@ template<class Type> void Vector<Type>::resize(uint64_t size)
             new (&m_buffer[i]) Type();
     }
     m_size = size;
+
+    if (g_timeResize)
+    {
+        g_num_times++;
+        // g_time_used_to_load_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
+        //                     std::chrono::steady_clock::now() - begin)
+        //                     .count();
+    }
 }
 
 //--------------------------------------------------------------------------------------------------
 template<class Type> void Vector<Type>::resize(uint64_t size, const Type &a)
 {
+    //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
     reserve(size);
 
     // Call the copy constructor for all the new elements
     for (uint64_t i = m_size; i < size; ++i)
         new (&m_buffer[i]) Type(a);
     m_size = size;
+
+    if (g_timeResize)
+    {
+        g_num_times++;
+        // g_time_used_to_load_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
+        //                     std::chrono::steady_clock::now() - begin)
+        //                     .count();
+    }
+
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -226,6 +249,11 @@ template<class Type> void Vector<Type>::reserve(uint64_t size)
 {
     if (size > m_reserved)
     {
+        if (g_timeResize)
+        {
+            g_num_reserves++;
+        }
+
         // Round up to nearest power of 2
         m_reserved = size;
         m_reserved--;
