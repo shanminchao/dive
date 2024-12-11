@@ -24,6 +24,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+
 #include "dive_core/common/common.h"
 #include "dive_core/common/pm4_packets/me_pm4_packets.h"
 
@@ -2239,9 +2240,39 @@ uint64_t CommandHierarchyCreator::GetChildCount(CommandHierarchy::TopologyType t
     return m_node_children[type][0][node_index].size();
 }
 
+class ShanTimer
+{
+public:
+    ShanTimer(const char *desc)
+    {
+        m_desc = desc;
+        m_begin = std::chrono::steady_clock::now();
+    }
+    ~ShanTimer()
+    {
+        int64_t timeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - m_begin)
+                            .count();
+        FILE *shanFile = fopen("/usr/local/google/home/shanminchao/src/shan.txt", "a");
+        fprintf(shanFile, "\t%s: %f s.\n", m_desc.c_str(), (timeMs / 1000.0));
+        fclose(shanFile);
+    }
+private:
+    std::string m_desc;
+    std::chrono::steady_clock::time_point m_begin;
+};
+#define SHAN_TIMER(a) ShanTimer obj##__LINE__(a)
+bool g_timeResize = false;
+int64_t g_time_used_to_load_ms = 0;
+uint64_t g_num_times = 0;
+uint64_t g_num_reserves = 0;
 //--------------------------------------------------------------------------------------------------
 void CommandHierarchyCreator::CreateTopologies()
 {
+    SHAN_TIMER("CreateTopologies");
+    g_timeResize = true;
+    char buffer[1024];
+
     uint64_t total_num_children[CommandHierarchy::kTopologyTypeCount] = {};
     uint64_t total_num_shared_children[CommandHierarchy::kTopologyTypeCount] = {};
 
@@ -2266,6 +2297,9 @@ void CommandHierarchyCreator::CreateTopologies()
     CommandHierarchy::TopologyType dst_topology = CommandHierarchy::kVulkanCallTopology;
     size_t                         num_nodes = m_node_children[src_topology][0].size();
     DIVE_ASSERT(num_nodes == m_node_children[src_topology][1].size());
+    {
+    sprintf(buffer, "Loop1, PRE Num reserves %ld", g_num_reserves);
+    SHAN_TIMER(buffer);
     for (size_t node_index = 0; node_index < num_nodes; ++node_index)
     {
         // Ensure topology was not previously filled-in
@@ -2301,6 +2335,7 @@ void CommandHierarchyCreator::CreateTopologies()
         total_num_shared_children[dst_topology] += m_node_children[dst_topology][1][node_index]
                                                    .size();
     }
+    }
 
     // A kVulkanEventTopology is a kVulkanCallTopology without non-Event Vulkan kMarkerNodes.
     // The shared-children of the non-Event Vulkan kMarkerNodes will be inherited by the "next"
@@ -2310,6 +2345,9 @@ void CommandHierarchyCreator::CreateTopologies()
     num_nodes = m_node_children[src_topology][0].size();
     DIVE_ASSERT(num_nodes == m_node_children[src_topology][1].size());
 
+    {
+    sprintf(buffer, "Loop2, PRE Num reserves %ld", g_num_reserves);
+    SHAN_TIMER(buffer);
     for (size_t node_index = 0; node_index < num_nodes; ++node_index)
     {
         // Skip over all Vulkan non-Event nodes
@@ -2361,13 +2399,29 @@ void CommandHierarchyCreator::CreateTopologies()
         total_num_shared_children[dst_topology] += m_node_children[dst_topology][1][node_index]
                                                    .size();
     }
+    }
 
+    uint64_t temp = 0;
+    {
+    sprintf(buffer, "Loop3, PRE Num reserves %ld", g_num_reserves);
+    SHAN_TIMER(buffer);
     // Convert the m_node_children temporary structure into CommandHierarchy's topologies
     for (uint32_t topology = 0; topology < CommandHierarchy::kTopologyTypeCount; ++topology)
     {
+        sprintf(buffer, "Loop3, topology %d, PRE Num reserves %ld", topology, g_num_reserves);
+        SHAN_TIMER(buffer);
         num_nodes = m_node_children[topology][0].size();
         Topology &cur_topology = m_command_hierarchy_ptr->m_topology[topology];
+        {
+        sprintf(buffer, "\tLoop3, Set Num Nodes");
+        SHAN_TIMER(buffer);
+
         cur_topology.SetNumNodes(num_nodes);
+        }
+
+        {
+        sprintf(buffer, "\tLoop3, reservation");
+        SHAN_TIMER(buffer);
 
         // Optional loop: Pre-reserve to prevent the resize() from allocating memory later
         // Note: The number of children for some of the topologies have been determined
@@ -2383,17 +2437,37 @@ void CommandHierarchyCreator::CreateTopologies()
         }
         cur_topology.m_children_list.reserve(total_num_children[topology]);
         cur_topology.m_shared_children_list.reserve(total_num_shared_children[topology]);
+        }
+
+        {
+        sprintf(buffer, "\tLoop3, topology %d, node %lu loop", topology, num_nodes);
+        SHAN_TIMER(buffer);
 
         for (uint64_t node_index = 0; node_index < num_nodes; ++node_index)
         {
             DIVE_ASSERT(m_node_children[topology][0].size() == m_node_children[topology][1].size());
             cur_topology.AddChildren(node_index, m_node_children[topology][0][node_index]);
             cur_topology.AddSharedChildren(node_index, m_node_children[topology][1][node_index]);
+            temp++;
         }
+        }
+
+        {
+        sprintf(buffer, "\tLoop3, std::move");
+        SHAN_TIMER(buffer);
         cur_topology.m_start_shared_child = std::move(m_node_start_shared_child[topology]);
         cur_topology.m_end_shared_child = std::move(m_node_end_shared_child[topology]);
         cur_topology.m_root_node_index = std::move(m_node_root_node_index[topology]);
+        }
     }
+    }
+    g_timeResize = false;
+
+
+    FILE *shanFile = fopen("/usr/local/google/home/shanminchao/src/shan.txt", "a");
+    fprintf(shanFile, "\tTime used for resize is %f s. (%ld, %ld)\n", (g_time_used_to_load_ms / 1000.0), temp, g_num_times);
+    fprintf(shanFile, "\tNum Reserves: %ld\n", g_num_reserves);
+    fclose(shanFile);
 }
 
 //--------------------------------------------------------------------------------------------------
