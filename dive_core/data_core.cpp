@@ -57,6 +57,7 @@ bool DataCore::CreateCommandHierarchy()
     if (!cmd_hier_creator.CreateTrees(&m_capture_metadata.m_command_hierarchy,
                                       m_capture_data,
                                       true,
+                                      m_capture_metadata.m_num_pm4_packets, // Optional
                                       m_log_ptr))
     {
         return false;
@@ -85,12 +86,12 @@ bool DataCore::ParseCaptureData()
         m_progress_tracker->sendMessage("Processing command buffers...");
     }
 
-    if (!CreateCommandHierarchy())
+    if (!CreateMetaData())
     {
         return false;
     }
 
-    if (!CreateMetaData())
+    if (!CreateCommandHierarchy())
     {
         return false;
     }
@@ -130,6 +131,7 @@ CaptureMetadataCreator::CaptureMetadataCreator(CaptureMetadata     &capture_meta
     m_state_tracker(state_tracker)
 {
     m_state_tracker.Reset();
+    m_capture_metadata.m_num_pm4_packets = 0;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -171,6 +173,7 @@ bool CaptureMetadataCreator::OnPacket(const IMemoryManager &mem_manager,
                                       uint64_t              va_addr,
                                       Pm4Header             header)
 {
+    m_capture_metadata.m_num_pm4_packets++;
     if (!m_state_tracker.OnPacket(mem_manager, submit_index, ib_index, va_addr, header))
         return false;
 

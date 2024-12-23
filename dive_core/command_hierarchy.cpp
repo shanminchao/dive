@@ -562,6 +562,7 @@ CommandHierarchyCreator::CommandHierarchyCreator(EmulateStateTracker &state_trac
 bool CommandHierarchyCreator::CreateTrees(CommandHierarchy  *command_hierarchy_ptr,
                                           const CaptureData &capture_data,
                                           bool               flatten_chain_nodes,
+                                          uint64_t           num_pm4_packets,
                                           ILog              *log_ptr)
 {
     m_log_ptr = log_ptr;
@@ -586,6 +587,25 @@ bool CommandHierarchyCreator::CreateTrees(CommandHierarchy  *command_hierarchy_p
 
     m_num_events = 0;
     m_flatten_chain_nodes = flatten_chain_nodes;
+
+    // Optional: Reserve the internal vectors based on the number of pm4 packets in the capture
+    // This is an educated guess that each PM4 packet results in x number of associated
+    // field/register nodes. Overguessing means more memory used during creation. Underguessing
+    // means more allocations. For big captures, this is easily in the multi-millions, so
+    // pre-reserving the space is a signficiant performance win
+    if (num_pm4_packets != 0 && num_pm4_packets != UINT64_MAX)
+    {
+        uint64_t reserve_size = num_pm4_packets * 10;
+        for (uint32_t topology = 0; topology < CommandHierarchy::kTopologyTypeCount; ++topology)
+        {
+            m_node_start_shared_child[topology].reserve(reserve_size);
+            m_node_end_shared_child[topology].reserve(reserve_size);
+            m_node_root_node_index[topology].reserve(reserve_size);
+
+            m_node_children[topology][0].reserve(reserve_size);
+            m_node_children[topology][1].reserve(reserve_size);
+        }
+    }
 
     if (!ProcessSubmits(capture_data.GetSubmits(), capture_data.GetMemoryManager()))
     {
