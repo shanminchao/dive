@@ -13,6 +13,9 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 */
+#include <assert.h>
+#include <algorithm>
+
 namespace Dive
 {
 
@@ -69,10 +72,10 @@ Vector<Type>::Vector(uint64_t size) :
 template<class Type>
 Vector<Type>::Vector(std::initializer_list<Type> a) :
     m_buffer(nullptr),
-    m_reserved(0),
-    m_size(0)
+    m_reserved(0)
 {
     reserve(a.size());
+    m_size = a.size();
     std::copy(a.begin(), a.end(), m_buffer);
 }
 
@@ -85,7 +88,7 @@ template<class Type> Vector<Type>::~Vector()
 //--------------------------------------------------------------------------------------------------
 template<class Type> Type &Vector<Type>::operator[](uint64_t i) const
 {
-    DIVE_ASSERT(i < m_size);
+    assert(i < m_size);
     return m_buffer[i];
 }
 
