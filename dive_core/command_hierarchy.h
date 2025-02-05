@@ -212,14 +212,11 @@ public:
     // The topologies are layed out such that the "normal" children contain non-packet nodes
     // and the "shared children" contain packet nodes. The difference lies in what is in
     // the "normal" children arrays:
-    //  The Engine hierarchy contains kRootNode -> kEngineNodes -> kSubmitNodes -> kIbNodes
     //  The Submit hierarchy contains kRootNode -> kSubmitNodes -> kIbNodes
     //  The Event hierarchy contains kRootNode -> kSubmitNodes/kPresentNodes -> (EventNodes)
     //      Where (EventNodes) == kMarkerNode/kDrawDispatchDmaNode/kSyncNode/kPostambleStateNode
     //  Note that all except kRootNode & kPresentNodes can have kPacketNodes as shared children
     const Topology &GetSubmitHierarchyTopology() const;
-    const Topology &GetVulkanDrawEventHierarchyTopology() const;
-    const Topology &GetVulkanEventHierarchyTopology() const;
     const Topology &GetAllEventHierarchyTopology() const;
 
     NodeType    GetNodeType(uint64_t node_index) const;
@@ -253,8 +250,6 @@ private:
     enum TopologyType
     {
         kSubmitTopology,
-        kVulkanEventTopology,
-        kVulkanCallTopology,
         kAllEventTopology,
         kTopologyTypeCount
     };

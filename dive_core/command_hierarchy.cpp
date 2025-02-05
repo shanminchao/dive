@@ -235,23 +235,10 @@ const Topology &CommandHierarchy::GetSubmitHierarchyTopology() const
 }
 
 //--------------------------------------------------------------------------------------------------
-const Topology &CommandHierarchy::GetVulkanDrawEventHierarchyTopology() const
-{
-    return m_topology[kVulkanEventTopology];
-}
-
-//--------------------------------------------------------------------------------------------------
-const Topology &CommandHierarchy::GetVulkanEventHierarchyTopology() const
-{
-    return m_topology[kVulkanCallTopology];
-}
-
-//--------------------------------------------------------------------------------------------------
 const Topology &CommandHierarchy::GetAllEventHierarchyTopology() const
 {
     return m_topology[kAllEventTopology];
 }
-
 
 //--------------------------------------------------------------------------------------------------
 NodeType CommandHierarchy::GetNodeType(uint64_t node_index) const
@@ -2233,127 +2220,10 @@ void CommandHierarchyCreator::CreateTopologies()
     uint64_t total_num_children[CommandHierarchy::kTopologyTypeCount] = {};
     uint64_t total_num_shared_children[CommandHierarchy::kTopologyTypeCount] = {};
 
-    // A kVulkanCallTopology is a kAllEventTopology without the following:
-    //  kDrawDispatchDmaNode, kSyncNode, kPostambleStateNode, kMarkerNode-kBarrier
-    auto FilterOut = [&](size_t node_index) {
-        NodeType type = m_command_hierarchy_ptr->GetNodeType(node_index);
-        // Filter out all these node types
-        if (type == NodeType::kDrawDispatchBlitNode || type == NodeType::kSyncNode ||
-            type == NodeType::kPostambleStateNode)
-            return true;
-        // Also filter out kMarkerNode-kBarrier nodes
-        if (type == NodeType::kMarkerNode)
-        {
-            auto marker_type = m_command_hierarchy_ptr->GetMarkerNodeType(node_index);
-            if (marker_type == CommandHierarchy::MarkerType::kBarrier)
-                return true;
-        }
-        return false;
-    };
-    CommandHierarchy::TopologyType src_topology = CommandHierarchy::kAllEventTopology;
-    CommandHierarchy::TopologyType dst_topology = CommandHierarchy::kVulkanCallTopology;
-    size_t                         num_nodes = m_node_children[src_topology][0].size();
-    DIVE_ASSERT(num_nodes == m_node_children[src_topology][1].size());
-    for (size_t node_index = 0; node_index < num_nodes; ++node_index)
-    {
-        // Ensure topology was not previously filled-in
-        DIVE_ASSERT(m_node_children[dst_topology][0][node_index].empty());
-        DIVE_ASSERT(m_node_children[dst_topology][1][node_index].empty());
-
-        // Ignore all these node types
-        if (FilterOut(node_index))
-            continue;
-
-        // Go through primary children of a particular node, and only add non-ignored nodes
-        const DiveVector<uint64_t> &children = m_node_children[src_topology][0][node_index];
-
-        // Optionally pre-reserve the maximum size for performance reasons
-        // This may result in slightly more memory being used
-        m_node_children[dst_topology][0][node_index].reserve(children.size());
-
-        for (size_t child = 0; child < children.size(); ++child)
-        {
-            if (!FilterOut(children[child]))
-                AddChild(dst_topology, node_index, children[child]);
-        }
-
-        // Shared children should remain the same
-        const DiveVector<uint64_t> &shared = m_node_children[src_topology][1][node_index];
-        m_node_children[CommandHierarchy::kVulkanCallTopology][1][node_index] = shared;
-
-        // Cache # of children
-        total_num_children[src_topology] += m_node_children[src_topology][0][node_index].size();
-        total_num_shared_children[src_topology] += m_node_children[src_topology][1][node_index]
-                                                   .size();
-        total_num_children[dst_topology] += m_node_children[dst_topology][0][node_index].size();
-        total_num_shared_children[dst_topology] += m_node_children[dst_topology][1][node_index]
-                                                   .size();
-    }
-
-    // A kVulkanEventTopology is a kVulkanCallTopology without non-Event Vulkan kMarkerNodes.
-    // The shared-children of the non-Event Vulkan kMarkerNodes will be inherited by the "next"
-    // Vulkan kMarkerNode encountered
-    src_topology = CommandHierarchy::kVulkanCallTopology;
-    dst_topology = CommandHierarchy::kVulkanEventTopology;
-    num_nodes = m_node_children[src_topology][0].size();
-    DIVE_ASSERT(num_nodes == m_node_children[src_topology][1].size());
-
-    for (size_t node_index = 0; node_index < num_nodes; ++node_index)
-    {
-        // Skip over all Vulkan non-Event nodes
-        if (IsVulkanNonEventNode(node_index))
-            continue;
-
-        // Go through primary children of a particular node, and only add non-ignored nodes
-        const DiveVector<uint64_t> &children = m_node_children[src_topology][0][node_index];
-
-        // Optionally pre-reserve the maximum size for performance reasons
-        // This may result in slightly more memory being used
-        m_node_children[dst_topology][0][node_index].reserve(children.size());
-
-        DiveVector<uint64_t> acc_shared;
-        for (size_t child = 0; child < children.size(); ++child)
-        {
-            // Accumulate shared packets from the child node
-            uint64_t                    child_index = children[child];
-            const DiveVector<uint64_t> &shared = m_node_children[src_topology][1][child_index];
-            if (!IsVulkanNonEventNode(child_index))
-            {
-                // If it isn't a Vulkan Event node or a Vulkan Non-Event node (ie. a non-Vulkan
-                // node, such as a normal marker node, a submit node, etc), then don't
-                // accumulate shared nodes. For example, the beginning of a submit sometimes has
-                // a vkCmdBegin followed by a debug-marker. The PM4 contents of the vkCmdBegin
-                // is thrown away, since it isn't part of the debug-marker.
-                if (IsVulkanEventNode(child_index))
-                {
-                    for (uint32_t i = 0; i < shared.size(); ++i)
-                        acc_shared.push_back(shared[i]);
-                }
-
-                AddChild(dst_topology, node_index, child_index);
-
-                if (acc_shared.empty())
-                    m_node_children[dst_topology][1][child_index] = shared;
-                else
-                    m_node_children[dst_topology][1][child_index] = std::move(acc_shared);
-                acc_shared.resize(0);
-            }
-            else
-            {
-                for (uint32_t i = 0; i < shared.size(); ++i)
-                    acc_shared.push_back(shared[i]);
-            }
-        }
-        // Cache # of children
-        total_num_children[dst_topology] += m_node_children[dst_topology][0][node_index].size();
-        total_num_shared_children[dst_topology] += m_node_children[dst_topology][1][node_index]
-                                                   .size();
-    }
-
     // Convert the m_node_children temporary structure into CommandHierarchy's topologies
     for (uint32_t topology = 0; topology < CommandHierarchy::kTopologyTypeCount; ++topology)
     {
-        num_nodes = m_node_children[topology][0].size();
+        size_t    num_nodes = m_node_children[topology][0].size();
         Topology &cur_topology = m_command_hierarchy_ptr->m_topology[topology];
         cur_topology.SetNumNodes(num_nodes);
 
