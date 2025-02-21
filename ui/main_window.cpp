@@ -35,7 +35,6 @@
 #include <filesystem>
 
 #include "about_window.h"
-#include "buffer_view.h"
 #include "command_buffer_model.h"
 #include "command_buffer_view.h"
 #include "command_model.h"
