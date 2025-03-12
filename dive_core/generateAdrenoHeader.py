@@ -191,10 +191,11 @@ def outputBitfields(pm4_info_file, bitfields, extra_front_tab_str, cur_offset):
     else:
       raise Exception("Encountered a bitfield with no pos/low/high!")
 
-    # Handle the case of overlapping bitfields. Only happens once, for CP_SET_MARKER
-    # Just end the bitfield early in that case
+    # Handle the case of overlapping bitfields, e.g. CP_SET_MARKER, A6XX_TEX_CONST
+    # Continue until passed the overlap
+    # And yes, this means it ignores all subsequent overlaps and favors  the first one that shows up
     if cur_offset > bitfield_start:
-      break;
+      continue
 
     # Handle the case where some bits are skipped like CP_EVENT_WRITE7
     if cur_offset != bitfield_start:

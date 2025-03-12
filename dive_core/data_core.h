@@ -16,7 +16,8 @@
 */
 
 #pragma once
-#include <map>
+#include <algorithm>
+#include <unordered_map>
 #include <vector>
 #include "capture_data.h"
 #include "capture_event_info.h"
@@ -35,13 +36,15 @@ struct CaptureMetadata
     CommandHierarchy m_command_hierarchy;
 
     // Information about each shader in the capture
-    std::vector<Disassembly> m_shaders;
+    DiveVector<Disassembly> m_shaders;
 
-    // Information about each buffer in the capture
-    std::vector<BufferInfo> m_buffers;
+    // Descriptors in the capture
+    DiveVector<A6XX_UBO>       m_ubos;       // aka vSharp
+    DiveVector<A6XX_TEX_CONST> m_tex_const;  // aka tSharp
+    DiveVector<A6XX_TEX_SAMP>  m_tex_samp;   // aka sSharp
 
     // Information about each event in the capture
-    std::vector<EventInfo> m_event_info;
+    DiveVector<EventInfo> m_event_info;
 
     // Register state tracking for each event
     // This is separated from EventInfo to take advantage of code-gen
@@ -95,33 +98,6 @@ private:
     ILog *m_log_ptr;
 };
 
-#if defined(ENABLE_CAPTURE_BUFFERS)
-//--------------------------------------------------------------------------------------------------
-// Shader reflector callback class, for use by the CaptureMetadataCreator
-class SRDCallbacks : public IShaderReflectorCallbacks
-{
-public:
-    // Callbacks on each SRD table used by the shader. The SRD table is a buffer that contains 1 or
-    // more SRDs, each of which might be a different type
-    virtual bool OnSRDTable(ShaderStage shader_stage,
-                            uint64_t    va_addr,
-                            uint64_t    size,
-                            void       *user_ptr)
-    {
-        return true;
-    }
-
-    virtual bool OnSRDTable(ShaderStage shader_stage,
-                            void       *data_ptr,
-                            uint64_t    va_addr,
-                            uint64_t    size,
-                            void       *user_ptr)
-    {
-        return true;
-    }
-};
-#endif
-
 //--------------------------------------------------------------------------------------------------
 // Handles creation of much of the metadata "info" from the capture
 class CaptureMetadataCreator : public IEmulateCallbacks
@@ -152,7 +128,13 @@ public:
                           Pm4Header             header) override;
 
 private:
-    bool HandleShaders(const IMemoryManager &mem_manager, uint32_t submit_index, uint32_t opcode);
+    bool HandleDescriptors(const IMemoryManager &mem_manager,
+                           uint32_t              submit_index,
+                           uint64_t              load_state6_addr);
+    bool HandleShaders(const IMemoryManager &mem_manager,
+                       uint32_t              submit_index,
+                       uint32_t              opcode,
+                       EventInfo            *event_info);
     void FillEventStateInfo(EventStateInfo::Iterator event_state_it);
     void FillInputAssemblyState(EventStateInfo::Iterator event_state_it);
     void FillTessellationState(EventStateInfo::Iterator event_state_it);
@@ -163,22 +145,67 @@ private:
     void FillColorBlendState(EventStateInfo::Iterator event_state_it);
     void FillHardwareSpecificStates(EventStateInfo::Iterator event_state_it);
 
-    // Map from shader address to shader index (in m_capture_metadata.m_shaders)
-    std::map<uint64_t, uint32_t> m_shader_addrs;
+    // Map from Sharp dwords to index (in m_capture_metadata arrays)
+    struct Sharp
+    {
+        Sharp(uint32_t *dwords, uint32_t num_dwords, uint32_t type)
+        {
+            assert(num_dwords <= kMaxSharpDwords);
+            memcpy(m_dwords, dwords, num_dwords * sizeof(uint32_t));
+            m_num_dwords = num_dwords;
+            m_type = type;
+        }
+        bool operator==(const Sharp &rhs) const
+        {
+            if (rhs.m_num_dwords != m_num_dwords)
+                return false;
+            return memcmp(m_dwords, rhs.m_dwords, m_num_dwords) == 0;
+        }
+        static const uint32_t kMaxSharpDwords = 17;
+        uint32_t              m_type;
+        uint32_t              m_num_dwords;
+        uint32_t              m_dwords[kMaxSharpDwords];
+        static_assert(kMaxSharpDwords * sizeof(uint32_t) >= sizeof(A6XX_TEX_SAMP));
+        static_assert(kMaxSharpDwords * sizeof(uint32_t) >= sizeof(A6XX_TEX_CONST));
+        static_assert(kMaxSharpDwords * sizeof(uint32_t) >= sizeof(A6XX_UBO));
+        friend struct SharpHasher;
+    };
+    struct SharpHasher
+    {
+        std::size_t operator()(const Sharp &k) const
+        {
+            static_assert(sizeof(std::size_t) == sizeof(uint64_t));
 
-    // Map from buffer address to buffer index (in m_capture_metadata.m_buffers)
-    std::map<uint64_t, uint32_t> m_buffer_addrs;
+            // A simple naive hash function, not really based on anything
+            size_t hash = 0;
+            for (uint32_t i = 0; i < k.m_num_dwords / 2; i += 2)
+            {
+                size_t new_dword = ((size_t)k.m_dwords[i] << 32) | k.m_dwords[i + 1];
+                hash ^= new_dword + 0xc1b727fecbf779c9 + (hash << 4) + (hash >> 4);
+            }
+            if (k.m_num_dwords % 2 != 0)
+            {
+                size_t new_dword = k.m_dwords[k.m_num_dwords - 1];
+                hash ^= new_dword + 0xc1b727fecbf779c9 + (hash << 4) + (hash >> 4);
+            }
+            return hash;
+        }
+    };
+
+    // Map from descriptor to descriptor index (in m_capture_metadata)
+    std::unordered_map<Sharp, uint32_t, SharpHasher> m_sharp_map;
+
+    // Map from shader address to shader index (in m_capture_metadata.m_shaders)
+    std::unordered_map<uint64_t, uint32_t> m_shader_addrs;
+
+    // Cache all descriptor indices created for the current event
+    DiveVector<DescriptorReference> m_ubo_indices;        // aka vSharp
+    DiveVector<DescriptorReference> m_tex_const_indices;  // aka tSharp
+    DiveVector<DescriptorReference> m_tex_samp_indices;   // aka sSharp
 
     CaptureMetadata     &m_capture_metadata;
     EmulateStateTracker &m_state_tracker;
     RenderModeType       m_current_render_mode = RenderModeType::kUnknown;
-
-#if defined(ENABLE_CAPTURE_BUFFERS)
-    // SRDCallbacks is a friend class, since it is essentially doing part of
-    // CaptureMetadataCreator's work and is only a separate class due to the callback nature of SRD
-    // reflection
-    friend class SRDCallbacks;
-#endif
 };
 
 }  // namespace Dive

@@ -43,6 +43,16 @@ struct ShaderReference
     uint32_t    m_enable_mask;
 };
 
+struct DescriptorReference
+{
+    uint32_t    m_descriptor_index = UINT32_MAX;
+    ShaderStage m_stage;
+    uint16_t    m_descriptor_set;
+    uint16_t    m_descriptor_set_offset;
+    bool        m_bindless;
+};
+
+
 enum class RenderModeType
 {
     kDirect,
@@ -56,16 +66,21 @@ enum class RenderModeType
 //--------------------------------------------------------------------------------------------------
 struct EventInfo
 {
-    // Indices of each buffer used in the event, for each shader
-    std::vector<uint32_t> m_buffer_indices[(uint32_t)ShaderStage::kShaderStageCount];
-
     // Log entries from parsing the capture metadata and disassembling the shaders.
     // These cannot be directly output to the log because we don't know the eventIds while parsing
     // the metadata.
     DeferredLog m_metadata_log;
 
     // References of each shader used in the event.
-    std::vector<ShaderReference> m_shader_references;
+    DiveVector<ShaderReference> m_shader_references;
+
+    // References to descriptors used in the event
+    DiveVector<DescriptorReference> m_ubo_references;             // aka vSharp
+    DiveVector<DescriptorReference> m_tex_const_references;       // aka tSharp
+    DiveVector<DescriptorReference> m_tex_samp_references;        // aka sSharp
+
+    // Indices of each descriptor used in the event, for each shader
+    std::vector<uint32_t> m_buffer_indices[(uint32_t)ShaderStage::kShaderStageCount];
 
     // Submit that contains this event
     uint32_t m_submit_index;

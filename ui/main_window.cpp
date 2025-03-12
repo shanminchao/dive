@@ -38,6 +38,7 @@
 #include "command_buffer_model.h"
 #include "command_buffer_view.h"
 #include "command_model.h"
+#include "descriptor_view.h"
 #include "dive_core/log.h"
 #include "dive_tree_view.h"
 #include "object_names.h"
@@ -201,10 +202,12 @@ MainWindow::MainWindow()
         m_overview_tab_view = new OverviewTabView(m_data_core->GetCaptureMetadata(),
                                                   *m_event_selection);
         m_event_state_view = new EventStateView(*m_data_core);
-        m_overview_view_tab_index = m_tab_widget->addTab(m_overview_tab_view, "Overview");
+        m_descriptor_view = new DescriptorView(*m_data_core);
 
+        m_overview_view_tab_index = m_tab_widget->addTab(m_overview_tab_view, "Overview");
         m_command_view_tab_index = m_tab_widget->addTab(m_command_tab_view, "Commands");
         m_shader_view_tab_index = m_tab_widget->addTab(m_shader_view, "Shaders");
+        m_descriptor_view_tab_index = m_tab_widget->addTab(m_descriptor_view, "Descriptors");
         m_event_state_view_tab_index = m_tab_widget->addTab(m_event_state_view, "Event State");
 #if defined(ENABLE_CAPTURE_BUFFERS)
         m_buffer_view = new BufferView(*m_data_core);
@@ -269,12 +272,10 @@ MainWindow::MainWindow()
                      SIGNAL(EventSelected(uint64_t)),
                      m_event_state_view,
                      SLOT(OnEventSelected(uint64_t)));
-#if defined(ENABLE_CAPTURE_BUFFERS)
     QObject::connect(this,
                      SIGNAL(EventSelected(uint64_t)),
-                     m_buffer_view,
+                     m_descriptor_view,
                      SLOT(OnEventSelected(uint64_t)));
-#endif
     QObject::connect(m_hover_help,
                      SIGNAL(CurrStringChanged(const QString &)),
                      m_property_panel,
@@ -1048,6 +1049,11 @@ void MainWindow::CreateShortcuts()
     QShortcut *shaderTabShortcut = new QShortcut(QKeySequence(SHORTCUT_SHADERS_TAB), this);
     connect(shaderTabShortcut, &QShortcut::activated, [this]() {
         m_tab_widget->setCurrentIndex(m_shader_view_tab_index);
+    });
+    // Descriptors Shortcut
+    QShortcut *descriptorTabShortcut = new QShortcut(QKeySequence(SHORTCUT_DESCRIPTORS_TAB), this);
+    connect(descriptorTabShortcut, &QShortcut::activated, [this]() {
+        m_tab_widget->setCurrentIndex(m_descriptor_view_tab_index);
     });
     // Event State Shortcut
     QShortcut *eventStateTabShortcut = new QShortcut(QKeySequence(SHORTCUT_EVENT_STATE_TAB), this);

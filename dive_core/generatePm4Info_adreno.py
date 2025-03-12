@@ -136,6 +136,7 @@ const RegInfo    *GetRegInfo(uint32_t reg);
 const RegInfo    *GetRegByName(const char *);
 const RegField   *GetRegFieldByName(const char *name, const RegInfo *info);
 uint32_t          GetRegOffsetByName(const char *name);
+uint32_t          GetEnumHandle(const char *enum_type);
 const char       *GetEnumString(uint32_t enum_handle, uint32_t val);
 const PacketInfo *GetPacketInfo(uint32_t op_code);
 const PacketInfo *GetPacketInfo(uint32_t op_code, const char *name);
@@ -159,11 +160,16 @@ def outputHeaderCpp(pm4_info_header_file_name, pm4_info_file):
 #include <vector>
 #include "dive_core/common/common.h"
 
+struct Reflection
+{
+    const char *m_name;
+    DiveVector<const char*> m_reflection;
+};
 static DiveVector<const char*> g_sOpCodeToString;
 static std::unordered_map<uint32_t, RegInfo> g_sRegInfoVariant;
 static DiveVector<RegInfo> g_sRegInfo;
 static std::unordered_map<std::string, uint32_t> g_sRegNameToIndex;
-static DiveVector<DiveVector<const char*>> g_sEnumReflection;
+static DiveVector<Reflection> g_sEnumReflection;
 static DiveVector<PacketInfo> g_sPacketInfo;
 static std::multimap<uint32_t, PacketInfo> g_sPacketInfoMultiple;
 static GPUVariantType g_sGPU_variant = kGPUVariantNone;
@@ -684,9 +690,12 @@ def outputEnums(pm4_info_file, enum_list):
     # the integer enum_value
     enum_sorted_items = sorted(enum_info[1].items())
     max_enum_value = enum_sorted_items[-1][0]
-    pm4_info_file.write("    g_sEnumReflection[%d].resize(%d, nullptr); // %s\n" % (idx, max_enum_value+1, enum_info[0]));
+    # pm4_info_file.write("    g_sEnumReflection[%d].resize(%d, nullptr); // %s\n" % (idx, max_enum_value+1, enum_info[0]));
+    pm4_info_file.write("    g_sEnumReflection[%d].m_name = \"%s\";\n" % (idx, enum_info[0]))
+    pm4_info_file.write("    g_sEnumReflection[%d].m_reflection.resize(%d, nullptr);\n" % (idx, max_enum_value+1));
+
     for enum_value, enum_value_string in enum_sorted_items:
-      pm4_info_file.write("    g_sEnumReflection[%d][%d] = \"%s\";\n" % (idx, enum_value, enum_value_string));
+      pm4_info_file.write("    g_sEnumReflection[%d].m_reflection[%d] = \"%s\";\n" % (idx, enum_value, enum_value_string))
 
 # ---------------------------------------------------------------------------------------
 # This function adds info for PM4 packets as well as structs that have no opcodes (e.g. V#s/T#s/S#s)
@@ -952,13 +961,23 @@ uint32_t GetRegOffsetByName(const char *name)
     return i->second;
 }
 
+uint32_t GetEnumHandle(const char *enum_type)
+{
+    for (uint32_t i = 0; i < g_sEnumReflection.size(); ++i)
+    {
+        if (strcmp(enum_type, g_sEnumReflection[i].m_name) == 0)
+            return i;
+    }
+    return UINT32_MAX;
+}
+
 const char *GetEnumString(uint32_t enum_handle, uint32_t val)
 {
     if (g_sEnumReflection.size() <= enum_handle)
         return nullptr;
-    if (g_sEnumReflection[enum_handle].size() <= val)
+    if (g_sEnumReflection[enum_handle].m_reflection.size() <= val)
         return nullptr;
-    return g_sEnumReflection[enum_handle][val];
+    return g_sEnumReflection[enum_handle].m_reflection[val];
 }
 
 const PacketInfo *GetPacketInfo(uint32_t op_code)

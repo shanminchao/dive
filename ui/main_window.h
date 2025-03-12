@@ -31,6 +31,7 @@ class QProgressBar;
 class QLabel;
 class QTabWidget;
 class ShaderView;
+class DescriptorView;
 class TextFileView;
 class EventStateView;
 class BufferView;
@@ -173,6 +174,8 @@ private:
     int              m_shader_view_tab_index;
     EventStateView  *m_event_state_view;
     int              m_event_state_view_tab_index;
+    DescriptorView  *m_descriptor_view;
+    int              m_descriptor_view_tab_index;
 #if defined(ENABLE_CAPTURE_BUFFERS)
     BufferView *m_buffer_view;
 #endif

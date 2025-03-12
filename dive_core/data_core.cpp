@@ -237,6 +237,13 @@ bool CaptureMetadataCreator::OnPacket(const IMemoryManager &mem_manager,
         default: m_current_render_mode = RenderModeType::kUnknown; break;
         }
     }
+    else if (type7_header->opcode == CP_LOAD_STATE6 ||
+             type7_header->opcode == CP_LOAD_STATE6_GEOM ||
+             type7_header->opcode == CP_LOAD_STATE6_FRAG)
+    {
+        if (!HandleDescriptors(mem_manager, submit_index, va_addr))
+            return false;
+    }
 
     if (IsDrawDispatchBlitSyncEvent(mem_manager, submit_index, va_addr, type7_header->opcode))
     {
@@ -264,8 +271,6 @@ bool CaptureMetadataCreator::OnPacket(const IMemoryManager &mem_manager,
                                                 va_addr,
                                                 type7_header->opcode);
 
-        m_capture_metadata.m_event_info.push_back(event_info);
-
         // Parse and add the shader(s) info to the metadata
         if (event_info.m_type == EventInfo::EventType::kDraw ||
             event_info.m_type == EventInfo::EventType::kDispatch)
@@ -275,24 +280,224 @@ bool CaptureMetadataCreator::OnPacket(const IMemoryManager &mem_manager,
                 FillEventStateInfo(it);
             }
 
-            if (!HandleShaders(mem_manager, submit_index, type7_header->opcode))
+            if (!HandleShaders(mem_manager, submit_index, type7_header->opcode, &event_info))
                 return false;
-        }
 
-#if defined(ENABLE_CAPTURE_BUFFERS)
-        // Parse descriptor tables, descriptors, and descriptor contents (ie: textures,
-        // buffers, etc)
-        ShaderReflector sr;
-        SRDCallbacks    srd_callbacks;
-        if (!sr.Process(srd_callbacks,
-                        mem_manager,
-                        m_state_tracker,
-                        m_constant_engine_emu,
-                        submit_index,
-                        header.opcode,
-                        this))
-            return false;
-#endif
+            // Copy over descriptor indices cached for current event in HandleDescriptors()
+            for (uint32_t i = 0; i < m_ubo_indices.size(); ++i)
+                event_info.m_ubo_references.push_back(m_ubo_indices[i]);
+            m_ubo_indices.resize(0);
+            for (uint32_t i = 0; i < m_tex_const_indices.size(); ++i)
+                event_info.m_tex_const_references.push_back(m_tex_const_indices[i]);
+            m_tex_const_indices.resize(0);
+            for (uint32_t i = 0; i < m_tex_samp_indices.size(); ++i)
+                event_info.m_tex_samp_references.push_back(m_tex_samp_indices[i]);
+            m_tex_samp_indices.resize(0);
+        }
+        m_capture_metadata.m_event_info.push_back(std::move(event_info));
+    }
+    return true;
+}
+
+//--------------------------------------------------------------------------------------------------
+bool CaptureMetadataCreator::HandleDescriptors(const IMemoryManager &mem_manager,
+                                               uint32_t              submit_index,
+                                               uint64_t              load_state6_addr)
+{
+    PM4_CP_LOAD_STATE6 packet;
+    DIVE_VERIFY(mem_manager.CopyMemory(&packet, submit_index, load_state6_addr, sizeof(packet)));
+
+    enum class StateBlockCat
+    {
+        kTex,
+        kShader,
+        kIbo
+    };
+    StateBlockCat cat;
+    const bool    is_compute = (packet.bitfields0.STATE_BLOCK == SB6_CS_TEX) ||
+                            (packet.bitfields0.STATE_BLOCK == SB6_CS_SHADER) ||
+                            (packet.bitfields0.STATE_BLOCK == SB6_CS_IBO);
+    switch (packet.bitfields0.STATE_BLOCK)
+    {
+    case SB6_VS_TEX:
+    case SB6_HS_TEX:
+    case SB6_DS_TEX:
+    case SB6_GS_TEX:
+    case SB6_FS_TEX:
+    case SB6_CS_TEX: cat = StateBlockCat::kTex; break;
+    case SB6_VS_SHADER:
+    case SB6_HS_SHADER:
+    case SB6_DS_SHADER:
+    case SB6_GS_SHADER:
+    case SB6_FS_SHADER:
+    case SB6_CS_SHADER: cat = StateBlockCat::kShader; break;
+    case SB6_IBO:
+    case SB6_CS_IBO: cat = StateBlockCat::kIbo; break;
+    default: DIVE_ASSERT(false); cat = StateBlockCat::kTex;
+    }
+
+    uint64_t ext_src_addr = 0;
+    bool     bindless = false;
+    switch (packet.bitfields0.STATE_SRC)
+    {
+    case SS6_DIRECT: ext_src_addr = load_state6_addr + sizeof(PM4_CP_LOAD_STATE6); break;
+    case SS6_BINDLESS:
+    {
+        bindless = true;
+        const uint32_t base_reg = is_compute ?
+                                  GetRegOffsetByName("HLSQ_CS_BINDLESS_BASE0_DESCRIPTOR") :
+                                  GetRegOffsetByName("HLSQ_BINDLESS_BASE0_DESCRIPTOR");
+        const uint32_t reg = base_reg + (packet.u32All1 >> 28) * 2;
+
+        DIVE_ASSERT(m_state_tracker.IsRegSet(reg));
+        DIVE_ASSERT(m_state_tracker.IsRegSet(reg + 1));
+
+        ext_src_addr = m_state_tracker.GetRegValue(reg) & 0xfffffffc;
+        ext_src_addr |= ((uint64_t)m_state_tracker.GetRegValue(reg + 1)) << 32;
+
+        ext_src_addr += 4 * (packet.u32All1 & 0xffffff);
+    }
+    break;
+    case SS6_INDIRECT:
+        ext_src_addr = packet.u32All1 & 0xfffffffc;
+        ext_src_addr |= ((uint64_t)packet.u32All2) << 32;
+        break;
+    case SS6_UBO: DIVE_ASSERT(false);  // Not used. Not sure what it's for
+    }
+
+    enum class DescriptorType
+    {
+        kTexSamp,
+        kTexConst,
+        kUbo,
+        kNone
+    };
+    DescriptorType type = DescriptorType::kNone;
+    switch (cat)
+    {
+    case StateBlockCat::kTex:
+        if (packet.bitfields0.STATE_TYPE == ST6_SHADER)
+            type = DescriptorType::kTexSamp;
+        else if (packet.bitfields0.STATE_TYPE == ST6_CONSTANTS)
+            type = DescriptorType::kTexConst;
+        else if (packet.bitfields0.STATE_TYPE == ST6_UBO)
+            type = DescriptorType::kUbo;
+        break;
+    case StateBlockCat::kShader:
+        // ST6_SHADER == Shader program
+        // ST6_CONSTANTS == Constant data
+        if (packet.bitfields0.STATE_TYPE == ST6_UBO)
+            type = DescriptorType::kUbo;
+        else if (packet.bitfields0.STATE_TYPE == ST6_IBO)
+        {
+            DIVE_ASSERT(packet.bitfields0.STATE_BLOCK == SB6_CS_SHADER);
+            type = DescriptorType::kTexConst;
+        }
+        break;
+    case StateBlockCat::kIbo:
+        // ST6_CONSTANTS == Constant data
+        if (packet.bitfields0.STATE_TYPE == ST6_SHADER)
+            type = DescriptorType::kTexConst;
+        break;
+    default: DIVE_ASSERT(false); break;
+    };
+
+    if (type != DescriptorType::kNone)
+    {
+        uint32_t sharp_struct_size = 0;
+        switch (type)
+        {
+        case DescriptorType::kTexSamp:
+            sharp_struct_size = bindless ? 16 * sizeof(uint32_t) : sizeof(A6XX_TEX_SAMP);
+            break;
+        case DescriptorType::kTexConst: sharp_struct_size = sizeof(A6XX_TEX_CONST); break;
+        case DescriptorType::kUbo:
+            sharp_struct_size = bindless ? 16 * sizeof(uint32_t) : sizeof(A6XX_UBO);
+            break;
+        default: DIVE_ASSERT(false);
+        };
+
+        for (uint32_t i = 0; i < packet.bitfields0.NUM_UNIT; ++i)
+        {
+            uint64_t addr = ext_src_addr + i * sharp_struct_size;
+            uint32_t sharp_dwords[Sharp::kMaxSharpDwords];
+            DIVE_ASSERT(sharp_struct_size / sizeof(uint32_t) <= Sharp::kMaxSharpDwords);
+
+            // The [1] is to skip the header, since there's no header
+            // Not sure why the A6XX_* struct has a HEADER
+            DIVE_VERIFY(
+            mem_manager.CopyMemory(&sharp_dwords[1], submit_index, addr, sharp_struct_size));
+
+            Sharp sharp((uint32_t *)sharp_dwords,
+                        sharp_struct_size / sizeof(uint32_t),
+                        (uint32_t)type);
+
+            // Determine shader type
+            ShaderStage stage;
+            switch (packet.bitfields0.STATE_BLOCK)
+            {
+            case SB6_VS_SHADER:
+            case SB6_VS_TEX: stage = Dive::ShaderStage::kShaderStageVs; break;
+            case SB6_HS_SHADER:
+            case SB6_HS_TEX: stage = Dive::ShaderStage::kShaderStageHs; break;
+            case SB6_GS_SHADER:
+            case SB6_GS_TEX: stage = Dive::ShaderStage::kShaderStageGs; break;
+            case SB6_FS_SHADER:
+            case SB6_FS_TEX: stage = Dive::ShaderStage::kShaderStagePs; break;
+            case SB6_CS_TEX:
+            case SB6_CS_SHADER:
+            case SB6_CS_IBO: stage = Dive::ShaderStage::kShaderStageCs; break;
+            default: stage = Dive::ShaderStage::kShaderStageCount;
+            };
+
+            // TODO: Test with sample that has more than 4 descriptor sets, because register only
+            // goes up to HLSQ_BINDLESS_BASE4_DESCRIPTOR
+            DescriptorReference ref = {};
+            ref.m_stage = stage;
+            ref.m_bindless = bindless;
+
+            if (packet.bitfields0.STATE_SRC == SS6_BINDLESS)
+            {
+                ref.m_descriptor_set = (packet.u32All1 >> 28) * 2;
+                ref.m_descriptor_set_offset = 4 * (packet.u32All1 & 0xffffff);
+            }
+            // Check if we've already seen this descriptor
+            if (m_sharp_map.find(sharp) != m_sharp_map.end())
+            {
+                ref.m_descriptor_index = m_sharp_map[sharp];
+                switch (type)
+                {
+                case DescriptorType::kTexSamp: m_tex_samp_indices.push_back(ref); break;
+                case DescriptorType::kTexConst: m_tex_const_indices.push_back(ref); break;
+                case DescriptorType::kUbo: m_ubo_indices.push_back(ref); break;
+                default: DIVE_ASSERT(false);
+                };
+            }
+            else
+            {
+                // We haven't seen this descriptor
+                switch (type)
+                {
+                case DescriptorType::kTexSamp:
+                    ref.m_descriptor_index = (uint32_t)m_capture_metadata.m_tex_samp.size();
+                    m_capture_metadata.m_tex_samp.push_back(*((A6XX_TEX_SAMP *)sharp_dwords));
+                    m_tex_samp_indices.push_back(ref);
+                    break;
+                case DescriptorType::kTexConst:
+                    ref.m_descriptor_index = (uint32_t)m_capture_metadata.m_tex_const.size();
+                    m_capture_metadata.m_tex_const.push_back(*((A6XX_TEX_CONST *)sharp_dwords));
+                    m_tex_const_indices.push_back(ref);
+                    break;
+                case DescriptorType::kUbo:
+                    ref.m_descriptor_index = (uint32_t)m_capture_metadata.m_ubos.size();
+                    m_capture_metadata.m_ubos.push_back(*((A6XX_UBO *)sharp_dwords));
+                    m_ubo_indices.push_back(ref);
+                    break;
+                default: DIVE_ASSERT(false);
+                };
+                m_sharp_map.insert(std::make_pair(sharp, ref.m_descriptor_index));
+            }
+        }
     }
     return true;
 }
@@ -300,16 +505,14 @@ bool CaptureMetadataCreator::OnPacket(const IMemoryManager &mem_manager,
 //--------------------------------------------------------------------------------------------------
 bool CaptureMetadataCreator::HandleShaders(const IMemoryManager &mem_manager,
                                            uint32_t              submit_index,
-                                           uint32_t              opcode)
+                                           uint32_t              opcode,
+                                           EventInfo            *event_info)
 {
     for (uint32_t shader = 0; shader < Dive::kShaderStageCount; ++shader)
     {
         bool is_dispatch = IsDispatchEventOpcode(opcode);
         bool is_valid_shader = is_dispatch && (shader == (uint32_t)ShaderStage::kShaderStageCs);
         is_valid_shader |= !is_dispatch && (shader != (uint32_t)ShaderStage::kShaderStageCs);
-
-        EventInfo &cur_event_info = m_capture_metadata.m_event_info.back();
-
         for (uint32_t enable_index = 0; enable_index < kShaderEnableBitCount; ++enable_index)
         {
             uint32_t enable_mask = 1u << enable_index;
@@ -328,7 +531,7 @@ bool CaptureMetadataCreator::HandleShaders(const IMemoryManager &mem_manager,
                         // Check if this event already has a reference to this shader, in which case
                         // we just add to the existing reference's enable mask.
                         bool found = false;
-                        for (auto &reference : cur_event_info.m_shader_references)
+                        for (auto &reference : event_info->m_shader_references)
                         {
                             if (reference.m_shader_index == shader_index)
                             {
@@ -343,7 +546,7 @@ bool CaptureMetadataCreator::HandleShaders(const IMemoryManager &mem_manager,
                     reference.m_shader_index = shader_index;
                     reference.m_stage = (ShaderStage)shader;
                     reference.m_enable_mask = enable_mask;
-                    cur_event_info.m_shader_references.push_back(reference);
+                    event_info->m_shader_references.push_back(reference);
                 }
                 else
                 {
@@ -353,7 +556,7 @@ bool CaptureMetadataCreator::HandleShaders(const IMemoryManager &mem_manager,
                     Disassembly shader_info(mem_manager,
                                             submit_index,
                                             addr,
-                                            &cur_event_info.m_metadata_log);
+                                            &event_info->m_metadata_log);
                     m_capture_metadata.m_shaders.push_back(shader_info);
                     m_shader_addrs.insert(std::make_pair(addr, shader_index));
 
@@ -362,7 +565,7 @@ bool CaptureMetadataCreator::HandleShaders(const IMemoryManager &mem_manager,
                     reference.m_shader_index = m_shader_addrs[addr];
                     reference.m_stage = (ShaderStage)shader;
                     reference.m_enable_mask = enable_mask;
-                    cur_event_info.m_shader_references.push_back(reference);
+                    event_info->m_shader_references.push_back(reference);
                 }
             }
         }

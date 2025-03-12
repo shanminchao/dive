@@ -22,3 +22,4 @@
 #define SHORTCUT_COMMANDS_TAB "Ctrl+Shift+C"
 #define SHORTCUT_SHADERS_TAB "Ctrl+Shift+H"
 #define SHORTCUT_EVENT_STATE_TAB "Ctrl+Shift+E"
+#define SHORTCUT_DESCRIPTORS_TAB "Ctrl+Shift+D"

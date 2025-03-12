@@ -2040,7 +2040,7 @@ void CommandHierarchyCreator::AppendLoadStateExtBufferNode(const IMemoryManager 
             const PacketInfo *packet_info_ptr = GetPacketInfo(0, sharp_struct_name);
             DIVE_ASSERT(packet_info_ptr != nullptr);
             std::ostringstream prefix_stream;
-            prefix_stream << "  [" << i << "] ";
+            prefix_stream << sharp_struct_name << "  [" << i << "] ";
             AppendPacketFieldNodes(mem_manager,
                                    submit_index,
                                    addr,
