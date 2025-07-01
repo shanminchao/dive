@@ -67,6 +67,9 @@ struct EventInfo
     // References of each shader used in the event.
     std::vector<ShaderReference> m_shader_references;
 
+    // Number of indices, for draw calls
+    uint32_t m_num_indices;
+
     // Submit that contains this event
     uint32_t m_submit_index;
 

@@ -1434,19 +1434,27 @@ std::string Util::GetEventString(const IMemoryManager &mem_manager,
         DIVE_VERIFY(mem_manager.RetrieveMemoryData(&packet, submit_index, va_addr, sizeof(packet)))
         string_stream << "DrawIndexOffset(NumIndices:" << packet.bitfields2.NUM_INDICES << ")";
     }
-    else if (opcode == CP_DRAW_INDX)
-    {
-        PM4_CP_DRAW_INDX packet;
-        DIVE_VERIFY(mem_manager.RetrieveMemoryData(&packet, submit_index, va_addr, sizeof(packet)))
-        string_stream << "DrawIndexOffset(NumIndices:" << packet.bitfields2.NUM_INDICES << ")";
-    }
     else if (opcode == CP_DRAW_INDX_OFFSET)
     {
         PM4_CP_DRAW_INDX_OFFSET packet;
         DIVE_VERIFY(mem_manager.RetrieveMemoryData(&packet, submit_index, va_addr, sizeof(packet)))
-        string_stream << "DrawIndexOffset("
-                      << "NumInstances:" << packet.bitfields1.NUM_INSTANCES << ","
+        string_stream << "DrawIndexOffset(";
+        if (packet.bitfields0.SOURCE_SELECT == DI_SRC_SEL_AUTO_INDEX)   // No indices provided
+        {
+                      string_stream << "NumInstances:" << packet.bitfields1.NUM_INSTANCES << ","
                       << "NumIndices:" << packet.bitfields2.NUM_INDICES << ")";
+   
+        }
+        else if (packet.bitfields0.SOURCE_SELECT == DI_SRC_SEL_DMA) // Indexed draw
+        {
+
+        }
+        else
+        {
+            // Immediate mode not support AFAIK
+            DIVE_ASSERT(false);
+            string_stream << ")";
+        }
     }
     else if (opcode == CP_DRAW_INDIRECT)
     {
@@ -1526,8 +1534,12 @@ std::string Util::GetEventString(const IMemoryManager &mem_manager,
     }
     else if (opcode == CP_DRAW_AUTO)
     {
-        // Where is this defined?!?
-        string_stream << "DrawAuto";
+        // vkCmdDrawIndirectByteCountEXT
+        PM4_CP_DRAW_AUTO packet;
+        DIVE_VERIFY(mem_manager.RetrieveMemoryData(&packet, submit_index, va_addr, sizeof(packet)))
+        string_stream << "DrawAuto("
+                          << "NumInstances:" << packet.bitfields1.NUM_INSTANCES << ","
+                          << "DstOff:" << packet.bitfields1.DST_OFF << ")";
     }
     else if (opcode == CP_EXEC_CS_INDIRECT)
     {
