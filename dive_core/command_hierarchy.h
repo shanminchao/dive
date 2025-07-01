@@ -619,6 +619,11 @@ public:
                                       uint64_t              va_addr,
                                       uint32_t              opcode,
                                       uint32_t              dword_count);
+    static uint32_t    GetVertexCount(const IMemoryManager &mem_manager,
+                                      uint32_t              submit_index,
+                                      uint64_t              va_addr,
+                                      uint32_t              opcode,
+                                      uint32_t              dword_count);
 };
 
 }  // namespace Dive

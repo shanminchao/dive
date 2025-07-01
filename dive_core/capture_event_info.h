@@ -41,6 +41,16 @@ struct ShaderReference
     uint32_t    m_shader_index = UINT32_MAX;
     ShaderStage m_stage;
     uint32_t    m_enable_mask;
+
+    // To support std::set, if needed
+    bool operator<(const ShaderReference& other) const
+    {
+        if (m_shader_index != other.m_shader_index)
+            return m_shader_index < other.m_shader_index;
+        if (m_stage != other.m_stage)
+            return m_stage < other.m_stage;
+        return m_enable_mask < other.m_enable_mask;
+    }
 };
 
 enum class RenderModeType
@@ -66,6 +76,9 @@ struct EventInfo
 
     // References of each shader used in the event.
     std::vector<ShaderReference> m_shader_references;
+
+    // Number of vertices, for draw calls
+    uint32_t m_num_vertices;
 
     // Submit that contains this event
     uint32_t m_submit_index;

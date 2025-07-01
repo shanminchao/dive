@@ -227,10 +227,17 @@ bool CaptureMetadataCreator::OnPacket(const IMemoryManager &mem_manager,
     if (IsDrawDispatchResolveSyncEvent(mem_manager, submit_index, va_addr, type7_header->opcode))
     {
         // Add a new event to the EventInfo metadata array
-        EventInfo event_info;
+        EventInfo event_info = {};
         event_info.m_submit_index = submit_index;
         if (IsDrawEventOpcode(type7_header->opcode))
+        {
             event_info.m_type = EventInfo::EventType::kDraw;
+            event_info.m_num_vertices = Util::GetVertexCount(mem_manager,
+                                                             submit_index,
+                                                             va_addr,
+                                                             type7_header->opcode,
+                                                             header.type7.count);
+        }
         else if (IsResolveEvent(mem_manager, submit_index, va_addr, type7_header->opcode))
             event_info.m_type = EventInfo::EventType::kResolve;
         else if (IsDispatchEventOpcode(type7_header->opcode))
