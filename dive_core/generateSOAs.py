@@ -87,25 +87,6 @@ it->SetThreadY(7);
 '''
 
 
-def clang_format(path: str) -> None:
-    '''
-    Run clang-format on C++ source file given by the path
-    '''
-    if 'CLANG_FORMAT' in os.environ:
-        clang_format_path = os.environ['CLANG_FORMAT']
-    else:
-        clang_format_path = shutil.which('clang-format-14') or \
-                            shutil.which('clang-format')
-    if not clang_format_path or not os.path.isfile(clang_format_path):
-        raise (Exception('Could not find clang-format'))
-    res = subprocess.run([clang_format_path, '--version'],
-                         capture_output=True,
-                         check=True)
-    if not res.stdout.decode('utf-8').startswith('clang-format version 14'):
-        raise (Exception('Incorrect clang-format version'))
-    subprocess.run([clang_format_path, '-i', path], check=True)
-
-
 def snake_case(value: str) -> str:
     '''
     Converts a camel/Pascal case identifier (e.g. 'MyIdentifier') into a snake case identifier (e.g. 'my_identifier').
@@ -140,8 +121,6 @@ def generate(spec: Dict, gen_name: str) -> None:
             tmpl = ''.join(
                 ["{% import 'struct_of_arrays.jinja' as macros %}", macro])
             env.from_string(tmpl).stream(**kwargs).dump(f)
-        if path.endswith('.h') or path.endswith('.cpp'):
-            clang_format(path)
 
     spec_options = []
     if 'options' in spec['header']:
