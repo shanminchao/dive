@@ -473,10 +473,6 @@ try:
   # close to flush
   pm4_packet_file_h.close();
 
-  # lint
-  print("formatting " + "clang-format -i -style=file " + sys.argv[3])
-  os.system("clang-format -i -style=file " + sys.argv[3])
-
 except IOError as e:
     errno, strerror = e.args
     print("I/O error({0}): {1}".format(errno,strerror))

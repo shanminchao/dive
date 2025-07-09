@@ -1121,15 +1121,6 @@ try:
   pm4_info_file_cpp.close();
   pm4_info_file_h.close();
 
-  # lint
-  format_cmd = 'clang-format -i -style=file ' + sys.argv[2]
-  format_cmd_h = format_cmd + '.h'
-  format_cmd_cpp = format_cmd + '.cpp'
-  print('formatting ' + format_cmd_h)
-  os.system(format_cmd_h)
-  print('formatting ' + format_cmd_cpp)
-  os.system(format_cmd_cpp)
-
 except IOError as e:
     errno, strerror = e.args
     print('I/O error({0}): {1}'.format(errno,strerror))
