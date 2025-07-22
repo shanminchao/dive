@@ -233,6 +233,26 @@ void py_event_state(py::module &m) {
                 sizeof(numpy_type<uint32_t>::type)}
     , reinterpret_cast<const numpy_type<uint32_t>::type*>(self.BinHPtr()));
         })
+            .def("window_scissor_tlx", [](const EventStateInfo &self) {
+            return py::array_t<numpy_type<uint16_t>::type>({ self.size()},         {
+                sizeof(numpy_type<uint16_t>::type)}
+    , reinterpret_cast<const numpy_type<uint16_t>::type*>(self.WindowScissorTLXPtr()));
+        })
+            .def("window_scissor_tly", [](const EventStateInfo &self) {
+            return py::array_t<numpy_type<uint16_t>::type>({ self.size()},         {
+                sizeof(numpy_type<uint16_t>::type)}
+    , reinterpret_cast<const numpy_type<uint16_t>::type*>(self.WindowScissorTLYPtr()));
+        })
+            .def("window_scissor_brx", [](const EventStateInfo &self) {
+            return py::array_t<numpy_type<uint16_t>::type>({ self.size()},         {
+                sizeof(numpy_type<uint16_t>::type)}
+    , reinterpret_cast<const numpy_type<uint16_t>::type*>(self.WindowScissorBRXPtr()));
+        })
+            .def("window_scissor_bry", [](const EventStateInfo &self) {
+            return py::array_t<numpy_type<uint16_t>::type>({ self.size()},         {
+                sizeof(numpy_type<uint16_t>::type)}
+    , reinterpret_cast<const numpy_type<uint16_t>::type*>(self.WindowScissorBRYPtr()));
+        })
             .def("render_mode", [](const EventStateInfo &self) {
             return py::array_t<numpy_type<a6xx_render_mode>::type>({ self.size()},         {
                 sizeof(numpy_type<a6xx_render_mode>::type)}
@@ -431,6 +451,18 @@ void py_event_state(py::module &m) {
                                 dict["bin_h"] = py::array_t<numpy_type<uint32_t>::type>({ self.size()},         {
                 sizeof(numpy_type<uint32_t>::type)}
     , reinterpret_cast<const numpy_type<uint32_t>::type*>(self.BinHPtr()));
+                                dict["window_scissor_tlx"] = py::array_t<numpy_type<uint16_t>::type>({ self.size()},         {
+                sizeof(numpy_type<uint16_t>::type)}
+    , reinterpret_cast<const numpy_type<uint16_t>::type*>(self.WindowScissorTLXPtr()));
+                                dict["window_scissor_tly"] = py::array_t<numpy_type<uint16_t>::type>({ self.size()},         {
+                sizeof(numpy_type<uint16_t>::type)}
+    , reinterpret_cast<const numpy_type<uint16_t>::type*>(self.WindowScissorTLYPtr()));
+                                dict["window_scissor_brx"] = py::array_t<numpy_type<uint16_t>::type>({ self.size()},         {
+                sizeof(numpy_type<uint16_t>::type)}
+    , reinterpret_cast<const numpy_type<uint16_t>::type*>(self.WindowScissorBRXPtr()));
+                                dict["window_scissor_bry"] = py::array_t<numpy_type<uint16_t>::type>({ self.size()},         {
+                sizeof(numpy_type<uint16_t>::type)}
+    , reinterpret_cast<const numpy_type<uint16_t>::type*>(self.WindowScissorBRYPtr()));
                                 dict["render_mode"] = py::array_t<numpy_type<a6xx_render_mode>::type>({ self.size()},         {
                 sizeof(numpy_type<a6xx_render_mode>::type)}
     , reinterpret_cast<const numpy_type<a6xx_render_mode>::type*>(self.RenderModePtr()));
