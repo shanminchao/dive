@@ -224,7 +224,11 @@ bool CaptureMetadataCreator::OnPacket(const IMemoryManager &mem_manager,
         }
     }
 
-    if (IsDrawDispatchResolveSyncEvent(mem_manager, submit_index, va_addr, type7_header->opcode))
+    if (IsDrawDispatchResolveSyncEvent(mem_manager,
+                                       submit_index,
+                                       va_addr,
+                                       type7_header->opcode,
+                                       m_state_tracker))
     {
         // Add a new event to the EventInfo metadata array
         EventInfo event_info = {};
@@ -238,15 +242,25 @@ bool CaptureMetadataCreator::OnPacket(const IMemoryManager &mem_manager,
                                                              type7_header->opcode,
                                                              header.type7.count);
         }
-        else if (IsResolveEvent(mem_manager, submit_index, va_addr, type7_header->opcode))
-            event_info.m_type = EventInfo::EventType::kResolve;
         else if (IsDispatchEventOpcode(type7_header->opcode))
             event_info.m_type = EventInfo::EventType::kDispatch;
         else
         {
-            DIVE_ASSERT(GetSyncType(mem_manager, submit_index, va_addr, type7_header->opcode) !=
-                        SyncType::kNone);  // Sanity check
-            event_info.m_type = EventInfo::EventType::kSync;
+            SyncType sync_type = Util::GetSyncType(mem_manager,
+                                                   submit_index,
+                                                   va_addr,
+                                                   type7_header->opcode,
+                                                   m_state_tracker);
+
+            DIVE_ASSERT(sync_type != SyncType::kNone);  // Sanity check
+            if (sync_type == SyncType::kSysMemToGmemBlit)
+                event_info.m_type = EventInfo::EventType::kSysmemToGmemBlit;
+            else if (sync_type == SyncType::kGmemToSysMemBlit)
+                event_info.m_type = EventInfo::EventType::kGmemToSysmemBlit;
+            else if (sync_type == SyncType::kClearGmem)
+                event_info.m_type = EventInfo::EventType::kClearGmem;
+            else
+                event_info.m_type = EventInfo::EventType::kSync;
         }
 
         EventStateInfo::Iterator it = m_capture_metadata.m_event_state.Add();

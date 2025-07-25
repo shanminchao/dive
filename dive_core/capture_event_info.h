@@ -43,7 +43,7 @@ struct ShaderReference
     uint32_t    m_enable_mask;
 
     // To support std::set, if needed
-    bool operator<(const ShaderReference& other) const
+    bool operator<(const ShaderReference &other) const
     {
         if (m_shader_index != other.m_shader_index)
             return m_shader_index < other.m_shader_index;
@@ -88,7 +88,9 @@ struct EventInfo
     {
         kDraw,
         kDispatch,
-        kResolve,
+        kSysmemToGmemBlit,
+        kGmemToSysmemBlit,
+        kClearGmem,
         kSync
     };
     EventType m_type;
@@ -106,6 +108,12 @@ enum class SyncType
     kCcuResolve = vgt_event_type::CCU_RESOLVE,
     kEventWriteEnd = vgt_event_type::CACHE_INVALIDATE7,
 
+    // Various configurations of a resolve/clear
+    // Interpreted versions of a vgt_event_type::CCU_RESOLVE
+    kSysMemToGmemBlit,
+    kGmemToSysMemBlit,
+    kClearGmem,
+
     kWaitMemWrites,
     kWaitForIdle,
     kWaitForMe,
@@ -113,23 +121,40 @@ enum class SyncType
     kNone
 };
 
-SyncType GetSyncType(const IMemoryManager &mem_manager,
-                     uint32_t              submit_index,
-                     uint64_t              addr,
-                     uint32_t              opcode);
-
 bool IsDrawDispatchResolveEvent(const IMemoryManager &mem_manager,
                                 uint32_t              submit_index,
                                 uint64_t              addr,
-                                uint32_t              opcode);
+                                uint32_t              opcode,
+                                EmulateStateTracker  &state_tracker);
 
 bool IsDrawDispatchResolveSyncEvent(const IMemoryManager &mem_manager,
                                     uint32_t              submit_index,
                                     uint64_t              addr,
-                                    uint32_t              opcode);
+                                    uint32_t              opcode,
+                                    EmulateStateTracker  &state_tracker);
 bool IsResolveEvent(const IMemoryManager &mem_manager,
                     uint32_t              submit_index,
                     uint64_t              addr,
                     uint32_t              opcode);
+class Util
+{
+public:
+    static SyncType    GetSyncType(const IMemoryManager &mem_manager,
+                                   uint32_t              submit_index,
+                                   uint64_t              addr,
+                                   uint32_t              opcode,
+                                   EmulateStateTracker  &state_tracker);
+    static std::string GetEventString(const IMemoryManager &mem_manager,
+                                      uint32_t              submit_index,
+                                      uint64_t              va_addr,
+                                      uint32_t              opcode,
+                                      uint32_t              dword_count,
+                                      EmulateStateTracker  &state_tracker);
+    static uint32_t    GetVertexCount(const IMemoryManager &mem_manager,
+                                      uint32_t              submit_index,
+                                      uint64_t              va_addr,
+                                      uint32_t              opcode,
+                                      uint32_t              dword_count);
+};
 
 }  // namespace Dive
