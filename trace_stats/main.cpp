@@ -81,6 +81,13 @@
                                                    (uint64_t)0);                          \
     }
 
+#define GATHER_BLITS(type)            \
+    do                                \
+    {                                 \
+        stats_list[kTotalBlits]++;    \
+        stats_list[k##type##Blits]++; \
+    } while (0)
+
 void GatherAndPrintStats(const Dive::CaptureMetadata &meta_data, std::ostream &ostream)
 {
     // Number of draw calls in BINNING, DIRECT, and TILED
@@ -107,7 +114,6 @@ void GatherAndPrintStats(const Dive::CaptureMetadata &meta_data, std::ostream &o
         kDirectDraws,
         kTiledDraws,
         kDispatches,
-        kResolves,
         kSyncs,
         kDepthTestEnabled,
         kDepthWriteEnabled,
@@ -133,6 +139,10 @@ void GatherAndPrintStats(const Dive::CaptureMetadata &meta_data, std::ostream &o
         kMinGPRs,
         kMaxGPRs,
         kMedianGPRs,
+        kTotalBlits,
+        kSysmemToGmemBlits,
+        kGmemToSysmemBlits,
+        kClearGmemBlits,
         kNumStats
     };
     const char *stats_desc[kNumStats] = {
@@ -140,7 +150,6 @@ void GatherAndPrintStats(const Dive::CaptureMetadata &meta_data, std::ostream &o
         "Num Draws (DIRECT)",
         "Num Draws (TILED)",
         "Num Dispatches",
-        "Num Resolves",
         "Num Syncs",
         "Num Draws with Depth Test Enabled",
         "Num Draws with Depth Write Enabled",
@@ -166,6 +175,10 @@ void GatherAndPrintStats(const Dive::CaptureMetadata &meta_data, std::ostream &o
         "\tMin GPRs in a single shader",
         "\tMax GPRs in a single shader",
         "\tMedian GPRs in a single shader",
+        "Total blits",
+        "\tSysMem to Gmem Blits",
+        "\tGmem to SysMem Blits",
+        "\tGmem Clears",
     };
 #ifndef NDEBUG
     // Ensure all elements of stats_desc are initialized
@@ -240,8 +253,6 @@ void GatherAndPrintStats(const Dive::CaptureMetadata &meta_data, std::ostream &o
         }
         else if (info.m_type == Dive::EventInfo::EventType::kDispatch)
             stats_list[kDispatches]++;
-        else if (info.m_type == Dive::EventInfo::EventType::kResolve)
-            stats_list[kResolves]++;
         else if (info.m_type == Dive::EventInfo::EventType::kSync)
             stats_list[kSyncs]++;
 
@@ -294,6 +305,13 @@ void GatherAndPrintStats(const Dive::CaptureMetadata &meta_data, std::ostream &o
             window_scissor.m_br_y = event_state_it->WindowScissorBRY();
             window_scissors.insert(window_scissor);
         }
+
+        if (info.m_type == Dive::EventInfo::EventType::kSysmemToGmemBlit)
+            GATHER_BLITS(SysmemToGmem);
+        else if (info.m_type == Dive::EventInfo::EventType::kGmemToSysmemBlit)
+            GATHER_BLITS(GmemToSysmem);
+        else if (info.m_type == Dive::EventInfo::EventType::kClearGmem)
+            GATHER_BLITS(ClearGmem);
     }
 
     GATHER_TOTAL_MIN_MAX_MEDIAN(event_num_vertices, Vertices);
@@ -344,6 +362,9 @@ void GatherAndPrintStats(const Dive::CaptureMetadata &meta_data, std::ostream &o
     // Print out all unique window scissors (i.e. tiles)
     {
         ostream << "Window scissors:" << std::endl;
+        ostream << "\tNum Draws (TILED) / Num Draws (BINNING) = "
+                << (float)stats_list[kTiledDraws] / stats_list[kBinningDraws]
+                << " (Number of Tiles?)" << std::endl;
         for (const WindowScissor &window_scissor : window_scissors)
         {
             ostream << "\t" << "tl_x: " << window_scissor.m_tl_x << ", ";
