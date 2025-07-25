@@ -866,7 +866,8 @@ bool CommandHierarchyCreator::OnPacket(const IMemoryManager &mem_manager,
                                                             submit_index,
                                                             va_addr,
                                                             opcode,
-                                                            header.type7.count);
+                                                            header.type7.count,
+                                                            m_state_tracker);
             uint32_t    event_id = m_num_events++;
 
             uint64_t node_index;
@@ -2140,7 +2141,8 @@ std::string Util::GetEventString(const IMemoryManager &mem_manager,
                                  uint32_t              submit_index,
                                  uint64_t              va_addr,
                                  uint32_t              opcode,
-                                 uint32_t              dword_count)
+                                 uint32_t              dword_count,
+                                 EmulateStateTracker  &state_tracker)
 {
     std::ostringstream string_stream;
     DIVE_ASSERT(IsDrawDispatchResolveSyncEvent(mem_manager, submit_index, va_addr, opcode));
@@ -2322,15 +2324,49 @@ std::string Util::GetEventString(const IMemoryManager &mem_manager,
     else if (opcode == CP_EVENT_WRITE7)
     {
         SyncType sync_type = GetSyncType(mem_manager, submit_index, va_addr, opcode);
+        if (sync_type == SyncType::kCcuResolve)
+        {
+            uint32_t rb_blit_info_offset = GetRegOffsetByName("RB_BLIT_INFO");
+            if (state_tracker.IsRegSet(rb_blit_info_offset))
+            {
+                RB_BLIT_INFO rb_blit_info;
+                rb_blit_info.u32All = state_tracker.GetRegValue(rb_blit_info_offset);
+                string_stream <<  "Blit(";
+                if (rb_blit_info.bitfields.CLEAR_MASK || rb_blit_info.bitfields.DEPTH)
+                {
+                    DIVE_ASSERT(rb_blit_info.bitfields.GMEM);
+                    string_stream <<  "ClearGmem";
 
-        // Note: For CP_EVENT_WRITEs, sync_type maps to a vgt_event_type
-        const PacketInfo *packet_info_ptr = GetPacketInfo(opcode);
-        DIVE_ASSERT(packet_info_ptr != nullptr);
-        DIVE_ASSERT(packet_info_ptr->m_fields.size() > 1);
-        DIVE_ASSERT(strcmp(packet_info_ptr->m_fields[0].m_name, "EVENT") == 0);
-        const char *enum_str = GetEnumString(packet_info_ptr->m_fields[0].m_enum_handle,
-                                             (uint32_t)sync_type);
-        string_stream << "CpEventWrite(type:" << enum_str << ")";
+                }
+                else
+                {
+                    if (rb_blit_info.bitfields.GMEM)
+                        string_stream <<  "SysMem-To-Gmem";
+                    else
+                        string_stream <<  "Gmem-To-SysMem";
+                }
+                if (rb_blit_info.bitfields.CLEAR_MASK)
+                    string_stream <<  ", color";
+                if (rb_blit_info.bitfields.DEPTH)
+                    string_stream <<  ", depth";
+                string_stream << ")";
+            }
+            else
+            {
+                DIVE_ASSERT(false);
+            }
+        }
+        else
+        {
+            // Note: For CP_EVENT_WRITEs, sync_type maps to a vgt_event_type
+            const PacketInfo *packet_info_ptr = GetPacketInfo(opcode);
+            DIVE_ASSERT(packet_info_ptr != nullptr);
+            DIVE_ASSERT(packet_info_ptr->m_fields.size() > 1);
+            DIVE_ASSERT(strcmp(packet_info_ptr->m_fields[0].m_name, "EVENT") == 0);
+            const char *enum_str = GetEnumString(packet_info_ptr->m_fields[0].m_enum_handle,
+                                                 (uint32_t)sync_type);
+            string_stream << "CpEventWrite(type:" << enum_str << ")";
+        }
     }
     else if (opcode == CP_WAIT_MEM_WRITES)
     {
@@ -2353,10 +2389,10 @@ std::string Util::GetEventString(const IMemoryManager &mem_manager,
 
 //--------------------------------------------------------------------------------------------------
 uint32_t Util::GetVertexCount(const IMemoryManager &mem_manager,
-                             uint32_t              submit_index,
-                             uint64_t              va_addr,
-                             uint32_t              opcode,
-                             uint32_t              dword_count)
+                              uint32_t              submit_index,
+                              uint64_t              va_addr,
+                              uint32_t              opcode,
+                              uint32_t              dword_count)
 {
     uint32_t index_count = 0;
     DIVE_ASSERT(IsDrawDispatchResolveSyncEvent(mem_manager, submit_index, va_addr, opcode));

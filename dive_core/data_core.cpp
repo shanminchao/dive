@@ -256,7 +256,8 @@ bool CaptureMetadataCreator::OnPacket(const IMemoryManager &mem_manager,
                                                 submit_index,
                                                 va_addr,
                                                 type7_header->opcode,
-                                                type7_header->count);
+                                                type7_header->count,
+                                                m_state_tracker);
 
         m_capture_metadata.m_event_info.push_back(event_info);
 

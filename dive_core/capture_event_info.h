@@ -103,6 +103,7 @@ enum class SyncType
 {
     // Map to EVENT_WRITEs (vgt_event_type)
     kEventWriteStart = vgt_event_type::VS_DEALLOC,
+    kCcuResolve = vgt_event_type::CCU_RESOLVE,
     kEventWriteEnd = vgt_event_type::CACHE_INVALIDATE7,
 
     kWaitMemWrites,
