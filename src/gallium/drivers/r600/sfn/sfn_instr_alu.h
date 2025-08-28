@@ -1,27 +1,7 @@
 /* -*- mesa-c++  -*-
- *
- * Copyright (c) 2022 Collabora LTD
- *
+ * Copyright 2022 Collabora LTD
  * Author: Gert Wollny <gert.wollny@collabora.com>
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * on the rights to use, copy, modify, merge, publish, distribute, sub
- * license, and/or sell copies of the Software, and to permit persons to whom
- * the Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice (including the next
- * paragraph) shall be included in all copies or substantial portions of the
- * Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHOR(S) AND/OR THEIR SUPPLIERS BE LIABLE FOR ANY CLAIM,
- * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
- * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
- * USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  */
 
 #ifndef INSTRALU_H
@@ -167,19 +147,19 @@ public:
 
    int alu_slots() const { return m_alu_slots; }
 
-   AluGroup *split(ValueFactory& vf);
+   bool split(ValueFactory& vf, AluGroup& dest_group);
 
    bool end_group() const override { return m_alu_flags.test(alu_last_instr); }
 
    static const std::set<AluModifiers> empty;
    static const std::set<AluModifiers> write;
-   static const std::set<AluModifiers> last;
-   static const std::set<AluModifiers> last_write;
 
    std::tuple<PRegister, bool, PRegister> indirect_addr() const;
    void update_indirect_addr(PRegister old_reg, PRegister reg) override;
 
    void add_extra_dependency(PVirtualValue reg);
+
+   int required_channels_mask() const;
 
    void set_required_slots(int nslots) { m_required_slots = nslots; }
    unsigned required_slots() const { return m_required_slots; }

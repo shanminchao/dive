@@ -410,7 +410,7 @@ update_program(struct gl_context *ctx)
 static GLbitfield
 update_single_program_constants(struct gl_context *ctx,
                                 struct gl_program *prog,
-                                gl_shader_stage stage)
+                                mesa_shader_stage stage)
 {
    if (prog) {
       const struct gl_program_parameter_list *params = prog->Parameters;
@@ -687,6 +687,9 @@ set_vertex_processing_mode(struct gl_context *ctx, gl_vertex_processing_mode m)
    default:
       assert(0);
    }
+
+   _mesa_set_varying_vp_inputs(ctx, ctx->VertexProgram._VPModeInputFilter &
+                               ctx->Array._DrawVAO->_EnabledWithMapMode);
 }
 
 

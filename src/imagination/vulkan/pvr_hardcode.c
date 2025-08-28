@@ -73,7 +73,7 @@ static const struct pvr_hard_coding_data {
       } compute;
 
       struct {
-         /* Mask of MESA_SHADER_* (gl_shader_stage). */
+         /* Mask of MESA_SHADER_* (mesa_shader_stage). */
          uint32_t flags;
 
          uint8_t *const *const vert_shaders;
@@ -211,7 +211,7 @@ pvr_hard_code_graphics_get_flags(const struct pvr_device_info *const dev_info)
 
 void pvr_hard_code_graphics_shader(const struct pvr_device_info *const dev_info,
                                    uint32_t pipeline_n,
-                                   gl_shader_stage stage,
+                                   mesa_shader_stage stage,
                                    struct util_dynarray *shader_out)
 {
    const struct pvr_hard_coding_data *const data =
@@ -239,7 +239,7 @@ void pvr_hard_code_graphics_shader(const struct pvr_device_info *const dev_info,
       break;
 
    default:
-      unreachable("Unsupported stage.");
+      UNREACHABLE("Unsupported stage.");
    }
 }
 
@@ -276,7 +276,7 @@ void pvr_hard_code_graphics_fragment_state(
 void pvr_hard_code_graphics_get_build_info(
    const struct pvr_device_info *const dev_info,
    uint32_t pipeline_n,
-   gl_shader_stage stage,
+   mesa_shader_stage stage,
    struct rogue_common_build_data *const common_build_data,
    struct rogue_build_data *const build_data,
    struct pvr_explicit_constant_usage *const explicit_const_usage)
@@ -294,10 +294,6 @@ void pvr_hard_code_graphics_get_build_info(
              data->graphics.vert_shader_states[pipeline_n]
                 ->stage_state.pds_temps_count);
 
-      assert(data->graphics.build_infos[pipeline_n]->vert_common_data.coeffs ==
-             data->graphics.vert_shader_states[pipeline_n]
-                ->stage_state.coefficient_size);
-
       build_data->vs = data->graphics.build_infos[pipeline_n]->stage_data.vs;
       *common_build_data =
          data->graphics.build_infos[pipeline_n]->vert_common_data;
@@ -311,10 +307,6 @@ void pvr_hard_code_graphics_get_build_info(
              data->graphics.frag_shader_states[pipeline_n]
                 ->stage_state.pds_temps_count);
 
-      assert(data->graphics.build_infos[pipeline_n]->frag_common_data.coeffs ==
-             data->graphics.frag_shader_states[pipeline_n]
-                ->stage_state.coefficient_size);
-
       build_data->fs = data->graphics.build_infos[pipeline_n]->stage_data.fs;
       *common_build_data =
          data->graphics.build_infos[pipeline_n]->frag_common_data;
@@ -324,7 +316,7 @@ void pvr_hard_code_graphics_get_build_info(
       break;
 
    default:
-      unreachable("Unsupported stage.");
+      UNREACHABLE("Unsupported stage.");
    }
 }
 

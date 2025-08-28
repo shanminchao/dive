@@ -1,52 +1,61 @@
 # Copyright © 2017 Intel Corporation
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+# SPDX-License-Identifier: MIT
 
 inc_loader = include_directories('.')
 
-if with_platform_x11 and with_dri3
-  libloader_dri3_helper = static_library(
-    'loader_dri3_helper',
-    'loader_dri3_helper.c',
+if with_platform_wayland
+  wp_dir = dep_wl_protocols.get_variable(pkgconfig : 'pkgdatadir', internal : 'pkgdatadir')
+  wp_protos = {
+    'fifo-v1': 'staging/fifo/fifo-v1.xml',
+    'commit-timing-v1': 'staging/commit-timing/commit-timing-v1.xml',
+    'linux-dmabuf-unstable-v1': 'unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml',
+    'presentation-time': 'stable/presentation-time/presentation-time.xml',
+    'tearing-control-v1': 'staging/tearing-control/tearing-control-v1.xml',
+    'linux-drm-syncobj-v1': 'staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml',
+    'color-management-v1': 'staging/color-management/color-management-v1.xml',
+  }
+  wp_files = {}
+  foreach name, xml : wp_protos
+    code = custom_target(
+      name + '-protocol.c',
+      input : files(join_paths(wp_dir, xml)),
+      output : name + '-protocol.c',
+      command : [prog_wl_scanner, wl_scanner_arg, '@INPUT@', '@OUTPUT@'],
+    )
+    header = custom_target(
+      name + '-client-protocol.h',
+      input : files(join_paths(wp_dir, xml)),
+      output : name + '-client-protocol.h',
+      command : [prog_wl_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+    )
+    wp_files += { name: [code, header] }
+  endforeach
+
+  libloader_wayland_helper = static_library(
+    'loader_wayland_helper',
+    'loader_wayland_helper.c',
+    wp_files['presentation-time'],
     gnu_symbol_visibility : 'hidden',
-    include_directories : [inc_include, inc_src],
+    include_directories : [inc_include, inc_src, inc_gallium],
     dependencies : [
       idep_mesautil,
-      dep_libdrm, dep_xcb_dri3, dep_xcb_present, dep_xcb_sync, dep_xshmfence,
-      dep_xcb_xfixes,
+      dep_wayland_client,
     ],
     build_by_default : false,
   )
 else
-  libloader_dri3_helper = []
+  libloader_wayland_helper = []
 endif
 
 loader_c_args = [
   '-DUSE_DRICONF',
-  '-DDEFAULT_DRIVER_DIR="@0@"'.format(dri_search_path),
 ]
 libloader = static_library(
   'loader',
   ['loader_dri_helper.c', 'loader.c', sha1_h],
   c_args : loader_c_args,
   gnu_symbol_visibility : 'hidden',
-  include_directories : [inc_include, inc_src, inc_util],
-  dependencies : [dep_libdrm, dep_thread, dep_xcb_xrandr],
+  include_directories : [inc_include, inc_src, inc_util, inc_gallium],
+  dependencies : [idep_mesautil, dep_libdrm, dep_thread, dep_xcb, dep_xcb_xrandr],
   build_by_default : false,
 )

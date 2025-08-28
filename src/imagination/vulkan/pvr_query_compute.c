@@ -33,8 +33,8 @@
 #include "pvr_formats.h"
 #include "pvr_pds.h"
 #include "pvr_private.h"
-#include "pvr_shader_factory.h"
-#include "pvr_static_shaders.h"
+#include "usc/programs/pvr_shader_factory.h"
+#include "usc/programs/pvr_static_shaders.h"
 #include "pvr_tex_state.h"
 #include "pvr_types.h"
 #include "vk_alloc.h"
@@ -161,7 +161,7 @@ static VkResult pvr_create_compute_query_program(
    pvr_pds_setup_doutu(&pds_primary_prog.usc_task_control,
                        query_prog->usc_bo->dev_addr.addr,
                        shader_factory_info->temps_required,
-                       PVRX(PDSINST_DOUTU_SAMPLE_RATE_INSTANCE),
+                       ROGUE_PDSINST_DOUTU_SAMPLE_RATE_INSTANCE,
                        false);
 
    result =
@@ -289,14 +289,14 @@ static VkResult pvr_write_compute_query_pds_data_section(
          }
 
          default:
-            unreachable("Unsupported special buffer type.");
+            UNREACHABLE("Unsupported special buffer type.");
          }
 
          entries += sizeof(*special_buff_entry);
          break;
       }
       default:
-         unreachable("Unsupported data section map");
+         UNREACHABLE("Unsupported data section map");
       }
    }
 
@@ -451,12 +451,13 @@ static void pvr_init_tex_info(const struct pvr_device_info *dev_info,
                               uint32_t width,
                               pvr_dev_addr_t addr)
 {
-   const uint8_t *swizzle_arr = pvr_get_format_swizzle(tex_info->format);
+   const VkFormat vk_format = VK_FORMAT_R32_UINT;
+   const uint8_t *swizzle_arr = pvr_get_format_swizzle(vk_format);
    bool is_view_1d = !PVR_HAS_FEATURE(dev_info, tpu_extended_integer_lookup) &&
                      !PVR_HAS_FEATURE(dev_info, tpu_image_state_v2);
 
    *tex_info = (struct pvr_texture_state_info){
-      .format = VK_FORMAT_R32_UINT,
+      .format = vk_format,
       .mem_layout = PVR_MEMLAYOUT_LINEAR,
       .flags = PVR_TEXFLAGS_INDEX_LOOKUP,
       .type = is_view_1d ? VK_IMAGE_VIEW_TYPE_1D : VK_IMAGE_VIEW_TYPE_2D,
@@ -487,7 +488,7 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
    const uint32_t core_count = device->pdevice->dev_runtime_info.core_count;
    const struct pvr_device_info *dev_info = &device->pdevice->dev_info;
    const struct pvr_shader_factory_info *shader_factory_info;
-   uint64_t sampler_state[ROGUE_NUM_TEXSTATE_SAMPLER_WORDS];
+   struct pvr_sampler_descriptor sampler_state;
    const struct pvr_compute_query_shader *query_prog;
    struct pvr_private_compute_pipeline pipeline;
    const uint32_t buffer_count = core_count;
@@ -497,18 +498,18 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
    struct pvr_suballoc_bo *pvr_bo;
    VkResult result;
 
-   pvr_csb_pack (&sampler_state[0U], TEXSTATE_SAMPLER, reg) {
-      reg.addrmode_u = PVRX(TEXSTATE_ADDRMODE_CLAMP_TO_EDGE);
-      reg.addrmode_v = PVRX(TEXSTATE_ADDRMODE_CLAMP_TO_EDGE);
-      reg.addrmode_w = PVRX(TEXSTATE_ADDRMODE_CLAMP_TO_EDGE);
-      reg.minfilter = PVRX(TEXSTATE_FILTER_POINT);
-      reg.magfilter = PVRX(TEXSTATE_FILTER_POINT);
+   pvr_csb_pack (&sampler_state.words[0], TEXSTATE_SAMPLER_WORD0, reg) {
+      reg.addrmode_u = ROGUE_TEXSTATE_ADDRMODE_CLAMP_TO_EDGE;
+      reg.addrmode_v = ROGUE_TEXSTATE_ADDRMODE_CLAMP_TO_EDGE;
+      reg.addrmode_w = ROGUE_TEXSTATE_ADDRMODE_CLAMP_TO_EDGE;
+      reg.minfilter = ROGUE_TEXSTATE_FILTER_POINT;
+      reg.magfilter = ROGUE_TEXSTATE_FILTER_POINT;
       reg.non_normalized_coords = true;
-      reg.dadjust = PVRX(TEXSTATE_DADJUST_ZERO_UINT);
+      reg.dadjust = ROGUE_TEXSTATE_DADJUST_ZERO_UINT;
    }
 
    /* clang-format off */
-   pvr_csb_pack (&sampler_state[1], TEXSTATE_SAMPLER_WORD1, sampler_word1) {}
+   pvr_csb_pack (&sampler_state.words[1], TEXSTATE_SAMPLER_WORD1, sampler_word1) {}
    /* clang-format on */
 
    switch (query_info->type) {
@@ -536,7 +537,7 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
       break;
 
    default:
-      unreachable("Invalid query type");
+      UNREACHABLE("Invalid query type");
    }
 
    result = pvr_cmd_buffer_start_sub_cmd(cmd_buffer,
@@ -556,10 +557,11 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
    pipeline.unified_store_regs_count = shader_factory_info->input_regs;
    pipeline.const_shared_regs_count = shader_factory_info->const_shared_regs;
 
-   const_buffer = vk_alloc(&cmd_buffer->vk.pool->alloc,
-                           shader_factory_info->const_shared_regs << 2,
-                           8,
-                           VK_SYSTEM_ALLOCATION_SCOPE_COMMAND);
+   const_buffer =
+      vk_alloc(&cmd_buffer->vk.pool->alloc,
+               PVR_DW_TO_BYTES(shader_factory_info->const_shared_regs),
+               8,
+               VK_SYSTEM_ALLOCATION_SCOPE_COMMAND);
    if (!const_buffer) {
       return vk_command_buffer_set_error(&cmd_buffer->vk,
                                          VK_ERROR_OUT_OF_HOST_MEMORY);
@@ -574,11 +576,11 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
 
    switch (query_info->type) {
    case PVR_QUERY_TYPE_AVAILABILITY_WRITE: {
-      uint64_t image_sampler_state[3][ROGUE_NUM_TEXSTATE_SAMPLER_WORDS];
+      struct pvr_image_descriptor image_sampler_state[4];
       uint32_t image_sampler_idx = 0;
 
-      memcpy(&image_sampler_state[image_sampler_idx][0],
-             &sampler_state[0],
+      memcpy(&image_sampler_state[image_sampler_idx],
+             &sampler_state,
              sizeof(sampler_state));
       image_sampler_idx++;
 
@@ -589,7 +591,7 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
 
       result = pvr_pack_tex_state(device,
                                   &tex_info,
-                                  &image_sampler_state[image_sampler_idx][0]);
+                                  &image_sampler_state[image_sampler_idx]);
       if (result != VK_SUCCESS) {
          vk_free(&cmd_buffer->vk.pool->alloc, const_buffer);
          return pvr_cmd_buffer_set_error_unwarned(cmd_buffer, result);
@@ -605,7 +607,7 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
 
       result = pvr_pack_tex_state(device,
                                   &tex_info,
-                                  &image_sampler_state[image_sampler_idx][0]);
+                                  &image_sampler_state[image_sampler_idx]);
       if (result != VK_SUCCESS) {
          vk_free(&cmd_buffer->vk.pool->alloc, const_buffer);
          return pvr_cmd_buffer_set_error_unwarned(cmd_buffer, result);
@@ -614,8 +616,8 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
       image_sampler_idx++;
 
       memcpy(&const_buffer[0],
-             &image_sampler_state[0][0],
-             sizeof(image_sampler_state));
+             &image_sampler_state[image_sampler_idx],
+             sizeof(image_sampler_state[image_sampler_idx]));
 
       /* Only PVR_QUERY_AVAILABILITY_WRITE_COUNT driver consts allowed. */
       assert(shader_factory_info->num_driver_consts ==
@@ -633,13 +635,14 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
       PVR_FROM_HANDLE(pvr_buffer,
                       buffer,
                       query_info->copy_query_results.dst_buffer);
-      const uint32_t image_sampler_state_arr_size =
-         (buffer_count + 2) * ROGUE_NUM_TEXSTATE_SAMPLER_WORDS;
+      const uint32_t image_sampler_state_arr_size = buffer_count + 2;
       uint32_t image_sampler_idx = 0;
       pvr_dev_addr_t addr;
       uint64_t offset;
 
-      STACK_ARRAY(uint64_t, image_sampler_state, image_sampler_state_arr_size);
+      STACK_ARRAY(struct pvr_image_descriptor,
+                  image_sampler_state,
+                  image_sampler_state_arr_size);
       if (!image_sampler_state) {
          vk_free(&cmd_buffer->vk.pool->alloc, const_buffer);
 
@@ -647,11 +650,8 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
                                             VK_ERROR_OUT_OF_HOST_MEMORY);
       }
 
-#define SAMPLER_ARR_2D(_arr, _i, _j) \
-   _arr[_i * ROGUE_NUM_TEXSTATE_SAMPLER_WORDS + _j]
-
-      memcpy(&SAMPLER_ARR_2D(image_sampler_state, image_sampler_idx, 0),
-             &sampler_state[0],
+      memcpy(&image_sampler_state[image_sampler_idx],
+             &sampler_state,
              sizeof(sampler_state));
       image_sampler_idx++;
 
@@ -661,10 +661,9 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
 
       pvr_init_tex_info(dev_info, &tex_info, num_query_indices, addr);
 
-      result = pvr_pack_tex_state(
-         device,
-         &tex_info,
-         &SAMPLER_ARR_2D(image_sampler_state, image_sampler_idx, 0));
+      result = pvr_pack_tex_state(device,
+                                  &tex_info,
+                                  &image_sampler_state[image_sampler_idx]);
       if (result != VK_SUCCESS) {
          vk_free(&cmd_buffer->vk.pool->alloc, const_buffer);
          return pvr_cmd_buffer_set_error_unwarned(cmd_buffer, result);
@@ -678,10 +677,9 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
 
          pvr_init_tex_info(dev_info, &tex_info, num_query_indices, addr);
 
-         result = pvr_pack_tex_state(
-            device,
-            &tex_info,
-            &SAMPLER_ARR_2D(image_sampler_state, image_sampler_idx, 0));
+         result = pvr_pack_tex_state(device,
+                                     &tex_info,
+                                     &image_sampler_state[image_sampler_idx]);
          if (result != VK_SUCCESS) {
             vk_free(&cmd_buffer->vk.pool->alloc, const_buffer);
             return pvr_cmd_buffer_set_error_unwarned(cmd_buffer, result);
@@ -691,8 +689,8 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
       }
 
       memcpy(&const_buffer[0],
-             &SAMPLER_ARR_2D(image_sampler_state, 0, 0),
-             image_sampler_state_arr_size * sizeof(image_sampler_state[0]));
+             image_sampler_state,
+             image_sampler_state_arr_size * sizeof(*image_sampler_state));
 
       STACK_ARRAY_FINISH(image_sampler_state);
 
@@ -729,13 +727,14 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
       PVR_FROM_HANDLE(pvr_query_pool,
                       pool,
                       query_info->reset_query_pool.query_pool);
-      const uint32_t image_sampler_state_arr_size =
-         (buffer_count + 2) * ROGUE_NUM_TEXSTATE_SAMPLER_WORDS;
+      const uint32_t image_sampler_state_arr_size = buffer_count + 2;
       uint32_t image_sampler_idx = 0;
       pvr_dev_addr_t addr;
       uint64_t offset;
 
-      STACK_ARRAY(uint64_t, image_sampler_state, image_sampler_state_arr_size);
+      STACK_ARRAY(struct pvr_image_descriptor,
+                  image_sampler_state,
+                  image_sampler_state_arr_size);
       if (!image_sampler_state) {
          vk_free(&cmd_buffer->vk.pool->alloc, const_buffer);
 
@@ -743,8 +742,8 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
                                             VK_ERROR_OUT_OF_HOST_MEMORY);
       }
 
-      memcpy(&SAMPLER_ARR_2D(image_sampler_state, image_sampler_idx, 0),
-             &sampler_state[0],
+      memcpy(&image_sampler_state[image_sampler_idx],
+             &sampler_state,
              sizeof(sampler_state));
       image_sampler_idx++;
 
@@ -756,10 +755,9 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
 
          pvr_init_tex_info(dev_info, &tex_info, num_query_indices, addr);
 
-         result = pvr_pack_tex_state(
-            device,
-            &tex_info,
-            &SAMPLER_ARR_2D(image_sampler_state, image_sampler_idx, 0));
+         result = pvr_pack_tex_state(device,
+                                     &tex_info,
+                                     &image_sampler_state[image_sampler_idx]);
          if (result != VK_SUCCESS) {
             vk_free(&cmd_buffer->vk.pool->alloc, const_buffer);
             return pvr_cmd_buffer_set_error_unwarned(cmd_buffer, result);
@@ -772,10 +770,9 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
 
       pvr_init_tex_info(dev_info, &tex_info, num_query_indices, addr);
 
-      result = pvr_pack_tex_state(
-         device,
-         &tex_info,
-         &SAMPLER_ARR_2D(image_sampler_state, image_sampler_idx, 0));
+      result = pvr_pack_tex_state(device,
+                                  &tex_info,
+                                  &image_sampler_state[image_sampler_idx]);
       if (result != VK_SUCCESS) {
          vk_free(&cmd_buffer->vk.pool->alloc, const_buffer);
          return pvr_cmd_buffer_set_error_unwarned(cmd_buffer, result);
@@ -783,11 +780,9 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
 
       image_sampler_idx++;
 
-#undef SAMPLER_ARR_2D
-
       memcpy(&const_buffer[0],
-             &image_sampler_state[0],
-             image_sampler_state_arr_size * sizeof(image_sampler_state[0]));
+             image_sampler_state,
+             image_sampler_state_arr_size * sizeof(*image_sampler_state));
 
       STACK_ARRAY_FINISH(image_sampler_state);
 
@@ -800,7 +795,7 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
    }
 
    default:
-      unreachable("Invalid query type");
+      UNREACHABLE("Invalid query type");
    }
 
 #undef DRIVER_CONST
@@ -814,11 +809,11 @@ VkResult pvr_add_query_program(struct pvr_cmd_buffer *cmd_buffer,
       const_buffer[load->dst_idx] = load->value;
    }
 
-   result =
-      pvr_cmd_buffer_upload_general(cmd_buffer,
-                                    const_buffer,
-                                    shader_factory_info->const_shared_regs << 2,
-                                    &pvr_bo);
+   result = pvr_cmd_buffer_upload_general(
+      cmd_buffer,
+      const_buffer,
+      PVR_DW_TO_BYTES(shader_factory_info->const_shared_regs),
+      &pvr_bo);
    if (result != VK_SUCCESS) {
       vk_free(&cmd_buffer->vk.pool->alloc, const_buffer);
 

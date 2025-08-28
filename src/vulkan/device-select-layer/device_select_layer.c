@@ -54,6 +54,7 @@ struct instance_info {
    PFN_vkGetPhysicalDeviceProperties2 GetPhysicalDeviceProperties2;
    bool has_pci_bus, has_vulkan11;
    bool has_wayland, has_xcb;
+   bool zink, xwayland, xserver;
 };
 
 static struct hash_table *device_select_instance_ht = NULL;
@@ -65,7 +66,7 @@ device_select_init_instances(void)
    simple_mtx_lock(&device_select_mutex);
    if (!device_select_instance_ht)
       device_select_instance_ht = _mesa_hash_table_create(NULL, _mesa_hash_pointer,
-							  _mesa_key_pointer_equal);
+                                                          _mesa_key_pointer_equal);
    simple_mtx_unlock(&device_select_mutex);
 }
 
@@ -75,8 +76,8 @@ device_select_try_free_ht(void)
    simple_mtx_lock(&device_select_mutex);
    if (device_select_instance_ht) {
       if (_mesa_hash_table_num_entries(device_select_instance_ht) == 0) {
-	 _mesa_hash_table_destroy(device_select_instance_ht, NULL);
-	 device_select_instance_ht = NULL;
+         _mesa_hash_table_destroy(device_select_instance_ht, NULL);
+         device_select_instance_ht = NULL;
       }
    }
    simple_mtx_unlock(&device_select_mutex);
@@ -114,8 +115,8 @@ device_select_layer_remove_instance(VkInstance instance)
 }
 
 static VkResult device_select_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
-					     const VkAllocationCallbacks *pAllocator,
-					     VkInstance *pInstance)
+                                             const VkAllocationCallbacks *pAllocator,
+                                             VkInstance *pInstance)
 {
    VkLayerInstanceCreateInfo *chain_info;
    for(chain_info = (VkLayerInstanceCreateInfo*)pCreateInfo->pNext; chain_info; chain_info = (VkLayerInstanceCreateInfo*)chain_info->pNext)
@@ -123,32 +124,39 @@ static VkResult device_select_CreateInstance(const VkInstanceCreateInfo *pCreate
          break;
 
    assert(chain_info->u.pLayerInfo);
-   struct instance_info *info = (struct instance_info *)calloc(1, sizeof(struct instance_info));
 
-   info->GetInstanceProcAddr = chain_info->u.pLayerInfo->pfnNextGetInstanceProcAddr;
-   PFN_vkCreateInstance fpCreateInstance =
-      (PFN_vkCreateInstance)info->GetInstanceProcAddr(NULL, "vkCreateInstance");
+   PFN_vkGetInstanceProcAddr GetInstanceProcAddr = chain_info->u.pLayerInfo->pfnNextGetInstanceProcAddr;
+   PFN_vkCreateInstance fpCreateInstance = (PFN_vkCreateInstance)GetInstanceProcAddr(NULL, "vkCreateInstance");
    if (fpCreateInstance == NULL) {
-      free(info);
       return VK_ERROR_INITIALIZATION_FAILED;
    }
 
    chain_info->u.pLayerInfo = chain_info->u.pLayerInfo->pNext;
 
+   const char *engineName = pCreateInfo->pApplicationInfo && pCreateInfo->pApplicationInfo->pEngineName ? pCreateInfo->pApplicationInfo->pEngineName : "";
+   const char *applicationName = pCreateInfo->pApplicationInfo && pCreateInfo->pApplicationInfo->pApplicationName ? pCreateInfo->pApplicationInfo->pApplicationName : "";
    VkResult result = fpCreateInstance(pCreateInfo, pAllocator, pInstance);
    if (result != VK_SUCCESS) {
-      free(info);
       return result;
    }
 
+   struct instance_info *info = (struct instance_info *)calloc(1, sizeof(struct instance_info));
+   info->GetInstanceProcAddr = GetInstanceProcAddr;
+   info->zink = !strcmp(engineName, "mesa zink");
+   info->xwayland = !strcmp(applicationName, "Xwayland");
+   info->xserver = !strcmp(applicationName, "Xorg") || !strcmp(applicationName, "Xephyr");
+
+   bool has_wayland = getenv("WAYLAND_DISPLAY") || getenv("WAYLAND_SOCKET");
+   bool has_xcb = !!getenv("DISPLAY");
+
    for (unsigned i = 0; i < pCreateInfo->enabledExtensionCount; i++) {
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
-      if (!strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME))
+      if (!strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME) && has_wayland)
          info->has_wayland = true;
 #endif
 #ifdef VK_USE_PLATFORM_XCB_KHR
-      if (!strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_XCB_SURFACE_EXTENSION_NAME))
-         info->has_xcb = true;
+      if (!strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_XCB_SURFACE_EXTENSION_NAME) && has_xcb)
+         info->has_xcb = !info->xserver || !info->zink;
 #endif
    }
 
@@ -542,14 +550,16 @@ static uint32_t get_default_device(const struct instance_info *info,
 }
 
 static VkResult device_select_EnumeratePhysicalDevices(VkInstance instance,
-						       uint32_t* pPhysicalDeviceCount,
-						       VkPhysicalDevice *pPhysicalDevices)
+                                                       uint32_t* pPhysicalDeviceCount,
+                                                       VkPhysicalDevice *pPhysicalDevices)
 {
    struct instance_info *info = device_select_layer_get_instance(instance);
    uint32_t physical_device_count = 0;
    uint32_t selected_physical_device_count = 0;
    const char* selection = getenv("MESA_VK_DEVICE_SELECT");
    bool expose_only_one_dev = false;
+   if (info->zink && info->xwayland)
+      return info->EnumeratePhysicalDevices(instance, pPhysicalDeviceCount, pPhysicalDevices);
    VkResult result = info->EnumeratePhysicalDevices(instance, &physical_device_count, NULL);
    VK_OUTARRAY_MAKE_TYPED(VkPhysicalDevice, out, pPhysicalDevices, pPhysicalDeviceCount);
    if (result != VK_SUCCESS)
@@ -572,14 +582,14 @@ static VkResult device_select_EnumeratePhysicalDevices(VkInstance instance,
       uint32_t count;
       info->EnumerateDeviceExtensionProperties(physical_devices[i], NULL, &count, NULL);
       if (count > 0) {
-	 VkExtensionProperties *extensions = calloc(count, sizeof(VkExtensionProperties));
+         VkExtensionProperties *extensions = calloc(count, sizeof(VkExtensionProperties));
          if (info->EnumerateDeviceExtensionProperties(physical_devices[i], NULL, &count, extensions) == VK_SUCCESS) {
-	    for (unsigned j = 0; j < count; j++) {
+            for (unsigned j = 0; j < count; j++) {
                if (!strcmp(extensions[j].extensionName, VK_EXT_PCI_BUS_INFO_EXTENSION_NAME))
                   info->has_pci_bus = true;
             }
          }
-	 free(extensions);
+         free(extensions);
       }
    }
    if (should_debug_device_selection() || (selection && strcmp(selection, "list") == 0)) {
@@ -633,6 +643,8 @@ static VkResult device_select_EnumeratePhysicalDeviceGroups(VkInstance instance,
    struct instance_info *info = device_select_layer_get_instance(instance);
    uint32_t physical_device_group_count = 0;
    uint32_t selected_physical_device_group_count = 0;
+   if (info->zink && info->xwayland)
+      return info->EnumeratePhysicalDeviceGroups(instance, pPhysicalDeviceGroupCount, pPhysicalDeviceGroups);
    VkResult result = info->EnumeratePhysicalDeviceGroups(instance, &physical_device_group_count, NULL);
    VK_OUTARRAY_MAKE_TYPED(VkPhysicalDeviceGroupProperties, out, pPhysicalDeviceGroups, pPhysicalDeviceGroupCount);
 

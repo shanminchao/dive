@@ -132,7 +132,7 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
             op = nir_intrinsic_ballot_bit_count_exclusive;
             break;
          default:
-            unreachable("Invalid group operation");
+            UNREACHABLE("Invalid group operation");
          }
          src0 = vtn_get_nir_ssa(b, w[5]);
          break;
@@ -145,7 +145,7 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
          src0 = vtn_get_nir_ssa(b, w[4]);
          break;
       default:
-         unreachable("Unhandled opcode");
+         UNREACHABLE("Unhandled opcode");
       }
 
       nir_intrinsic_instr *intrin =
@@ -228,11 +228,11 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
             op = nir_intrinsic_vote_ieq;
             break;
          default:
-            unreachable("Unhandled type");
+            UNREACHABLE("Unhandled type");
          }
          break;
       default:
-         unreachable("Unhandled opcode");
+         UNREACHABLE("Unhandled opcode");
       }
 
       nir_def *src0;
@@ -275,7 +275,7 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
          op = nir_intrinsic_shuffle_down;
          break;
       default:
-         unreachable("Invalid opcode");
+         UNREACHABLE("Invalid opcode");
       }
       vtn_push_ssa_value(b, w[2],
          vtn_build_subgroup_instr(b, op, vtn_ssa_value(b, w[4]),
@@ -327,7 +327,6 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
    }
 
    case SpvOpGroupNonUniformRotateKHR: {
-      const mesa_scope scope = vtn_translate_scope(b, vtn_constant_uint(b, w[3]));
       const uint32_t cluster_size = count > 6 ? vtn_constant_uint(b, w[6]) : 0;
       vtn_fail_if(cluster_size && !IS_POT(cluster_size),
                   "Behavior is undefined unless ClusterSize is at least 1 and a power of 2.");
@@ -336,11 +335,20 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
       struct vtn_ssa_value *delta = vtn_ssa_value(b, w[5]);
       vtn_push_nir_ssa(b, w[2],
          vtn_build_subgroup_instr(b, nir_intrinsic_rotate,
-                                  value, delta->def, scope, cluster_size)->def);
+                                  value, delta->def, cluster_size, 0)->def);
       break;
    }
 
    case SpvOpGroupNonUniformQuadBroadcast:
+      /* From the Vulkan spec 1.3.269:
+       *
+       * 9.27. Quad Group Operations:
+       * "Fragment shaders that statically execute quad group operations
+       * must launch sufficient invocations to ensure their correct operation;"
+       */
+      if (b->shader->info.stage == MESA_SHADER_FRAGMENT)
+         b->shader->info.fs.require_full_quads = true;
+
       vtn_push_ssa_value(b, w[2],
          vtn_build_subgroup_instr(b, nir_intrinsic_quad_broadcast,
                                   vtn_ssa_value(b, w[4]),
@@ -348,6 +356,9 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
       break;
 
    case SpvOpGroupNonUniformQuadSwap: {
+      if (b->shader->info.stage == MESA_SHADER_FRAGMENT)
+         b->shader->info.fs.require_full_quads = true;
+
       unsigned direction = vtn_constant_uint(b, w[5]);
       nir_intrinsic_op op;
       switch (direction) {
@@ -365,6 +376,17 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
       }
       vtn_push_ssa_value(b, w[2],
          vtn_build_subgroup_instr(b, op, vtn_ssa_value(b, w[4]), NULL, 0, 0));
+      break;
+   }
+
+   case SpvOpGroupNonUniformQuadAllKHR: {
+      nir_def *dest = nir_quad_vote_all(&b->nb, 1, vtn_get_nir_ssa(b, w[3]));
+      vtn_push_nir_ssa(b, w[2], dest);
+      break;
+   }
+   case SpvOpGroupNonUniformQuadAnyKHR: {
+      nir_def *dest = nir_quad_vote_any(&b->nb, 1, vtn_get_nir_ssa(b, w[3]));
+      vtn_push_nir_ssa(b, w[2], dest);
       break;
    }
 
@@ -392,6 +414,14 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
    case SpvOpGroupFMax:
    case SpvOpGroupUMax:
    case SpvOpGroupSMax:
+   case SpvOpGroupIMulKHR:
+   case SpvOpGroupFMulKHR:
+   case SpvOpGroupBitwiseAndKHR:
+   case SpvOpGroupBitwiseOrKHR:
+   case SpvOpGroupBitwiseXorKHR:
+   case SpvOpGroupLogicalAndKHR:
+   case SpvOpGroupLogicalOrKHR:
+   case SpvOpGroupLogicalXorKHR:
    case SpvOpGroupIAddNonUniformAMD:
    case SpvOpGroupFAddNonUniformAMD:
    case SpvOpGroupFMinNonUniformAMD:
@@ -412,9 +442,11 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
       case SpvOpGroupFAddNonUniformAMD:
          reduction_op = nir_op_fadd;
          break;
+      case SpvOpGroupIMulKHR:
       case SpvOpGroupNonUniformIMul:
          reduction_op = nir_op_imul;
          break;
+      case SpvOpGroupFMulKHR:
       case SpvOpGroupNonUniformFMul:
          reduction_op = nir_op_fmul;
          break;
@@ -448,20 +480,26 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
       case SpvOpGroupFMaxNonUniformAMD:
          reduction_op = nir_op_fmax;
          break;
+      case SpvOpGroupBitwiseAndKHR:
+      case SpvOpGroupLogicalAndKHR:
       case SpvOpGroupNonUniformBitwiseAnd:
       case SpvOpGroupNonUniformLogicalAnd:
          reduction_op = nir_op_iand;
          break;
+      case SpvOpGroupBitwiseOrKHR:
+      case SpvOpGroupLogicalOrKHR:
       case SpvOpGroupNonUniformBitwiseOr:
       case SpvOpGroupNonUniformLogicalOr:
          reduction_op = nir_op_ior;
          break;
+      case SpvOpGroupBitwiseXorKHR:
+      case SpvOpGroupLogicalXorKHR:
       case SpvOpGroupNonUniformBitwiseXor:
       case SpvOpGroupNonUniformLogicalXor:
          reduction_op = nir_op_ixor;
          break;
       default:
-         unreachable("Invalid reduction operation");
+         UNREACHABLE("Invalid reduction operation");
       }
 
       nir_intrinsic_op op;
@@ -482,7 +520,7 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
          cluster_size = vtn_constant_uint(b, w[6]);
          break;
       default:
-         unreachable("Invalid group operation");
+         UNREACHABLE("Invalid group operation");
       }
 
       vtn_push_ssa_value(b, w[2],
@@ -492,6 +530,6 @@ vtn_handle_subgroup(struct vtn_builder *b, SpvOp opcode,
    }
 
    default:
-      unreachable("Invalid SPIR-V opcode");
+      UNREACHABLE("Invalid SPIR-V opcode");
    }
 }

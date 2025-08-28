@@ -19,7 +19,7 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
- * 
+ *
  * Authors:
  *    Mike Blumenkrantz <michael.blumenkrantz@gmail.com>
  */
@@ -34,6 +34,9 @@
 #include "zink_pipeline.h"
 #include "zink_program.h"
 #include "zink_screen.h"
+
+#define XXH_INLINE_ALL
+#include "util/xxhash.h"
 
 /* runtime-optimized pipeline state hashing */
 template <zink_dynamic_state DYNAMIC_STATE>
@@ -102,6 +105,7 @@ zink_get_gfx_pipeline(struct zink_context *ctx,
                       struct zink_gfx_pipeline_state *state,
                       enum mesa_prim mode)
 {
+   MESA_TRACE_FUNC();
    struct zink_screen *screen = zink_screen(ctx->base.screen);
    bool uses_dynamic_stride = state->uses_dynamic_stride;
 
@@ -109,7 +113,7 @@ zink_get_gfx_pipeline(struct zink_context *ctx,
    const unsigned idx = screen->info.dynamic_state3_props.dynamicPrimitiveTopologyUnrestricted ?
                         0 :
                         get_pipeline_idx<DYNAMIC_STATE >= ZINK_DYNAMIC_STATE>(mode, vkmode);
-   assert(idx <= ARRAY_SIZE(prog->pipelines[0]));
+   assert(idx <= ARRAY_SIZE(prog->pipelines));
    if (!state->dirty && !state->modules_changed &&
        ((DYNAMIC_STATE == ZINK_DYNAMIC_VERTEX_INPUT || DYNAMIC_STATE == ZINK_DYNAMIC_VERTEX_INPUT2) && !ctx->vertex_state_changed) &&
        idx == state->idx)
@@ -128,9 +132,10 @@ zink_get_gfx_pipeline(struct zink_context *ctx,
    /* extra safety asserts for optimal path to catch refactoring bugs */
    if (prog->optimal_keys) {
       ASSERTED const union zink_shader_key_optimal *opt = (union zink_shader_key_optimal*)&prog->last_variant_hash;
-      ASSERTED uint32_t sanitized = zink_sanitize_optimal_key(ctx->gfx_stages, ctx->gfx_pipeline_state.shader_keys_optimal.key.val);
-      assert(opt->val == sanitized);
-      assert(state->optimal_key == sanitized);
+      ASSERTED union zink_shader_key_optimal sanitized = {};
+      sanitized.val = zink_sanitize_optimal_key(ctx->gfx_stages, ctx->gfx_pipeline_state.shader_keys_optimal.key.val);
+      assert(opt->val == sanitized.val);
+      assert(state->optimal_key == sanitized.val);
    }
    /* recalc vertex state if missing optimal extensions */
    if (DYNAMIC_STATE != ZINK_DYNAMIC_VERTEX_INPUT2 && DYNAMIC_STATE != ZINK_DYNAMIC_VERTEX_INPUT && ctx->vertex_state_changed) {
@@ -138,6 +143,9 @@ zink_get_gfx_pipeline(struct zink_context *ctx,
          state->final_hash ^= state->vertex_hash;
       /* even if dynamic stride is available, it may not be usable with the current pipeline */
       if (DYNAMIC_STATE != ZINK_NO_DYNAMIC_STATE)
+#if defined(MVK_VERSION)
+         if (screen->have_dynamic_state_vertex_input_binding_stride)
+#endif
          uses_dynamic_stride = check_vertex_strides(ctx);
       if (!uses_dynamic_stride) {
          uint32_t hash = 0;
@@ -159,20 +167,18 @@ zink_get_gfx_pipeline(struct zink_context *ctx,
    state->modules_changed = false;
    state->uses_dynamic_stride = uses_dynamic_stride;
    state->idx = idx;
-   ctx->vertex_state_changed = false;
 
-   const int rp_idx = state->render_pass ? 1 : 0;
    /* shortcut for reusing previous pipeline across program changes */
    if (DYNAMIC_STATE == ZINK_DYNAMIC_VERTEX_INPUT || DYNAMIC_STATE == ZINK_DYNAMIC_VERTEX_INPUT2) {
-      if (prog->last_finalized_hash[rp_idx][idx] == state->final_hash &&
-          !prog->inline_variants && likely(prog->last_pipeline[rp_idx][idx]) &&
+      if (prog->last_finalized_hash[idx] == state->final_hash &&
+          !prog->inline_variants && likely(prog->last_pipeline[idx]) &&
           /* this data is too big to compare in the fast-path */
           likely(!prog->shaders[MESA_SHADER_FRAGMENT]->fs.legacy_shadow_mask)) {
-         state->pipeline = prog->last_pipeline[rp_idx][idx];
+         state->pipeline = prog->last_pipeline[idx]->pipeline;
          return state->pipeline;
       }
    }
-   entry = _mesa_hash_table_search_pre_hashed(&prog->pipelines[rp_idx][idx], state->final_hash, state);
+   entry = _mesa_hash_table_search_pre_hashed(&prog->pipelines[idx], state->final_hash, state);
 
    if (!entry) {
       /* always wait on async precompile/cache fence */
@@ -184,10 +190,11 @@ zink_get_gfx_pipeline(struct zink_context *ctx,
        * TODO: maybe optimize this since all these values aren't actually needed
        */
       memcpy(&pc_entry->state, state, sizeof(*state));
+      pc_entry->state.rendering_info.pColorAttachmentFormats = pc_entry->state.rendering_formats;
       pc_entry->prog = prog;
       /* init the optimized background compile fence */
       util_queue_fence_init(&pc_entry->fence);
-      entry = _mesa_hash_table_insert_pre_hashed(&prog->pipelines[rp_idx][idx], state->final_hash, pc_entry, pc_entry);
+      entry = _mesa_hash_table_insert_pre_hashed(&prog->pipelines[idx], state->final_hash, pc_entry, pc_entry);
       if (prog->base.uses_shobj && !prog->is_separable) {
          memcpy(pc_entry->shobjs, prog->objs, sizeof(prog->objs));
          zink_gfx_program_compile_queue(ctx, pc_entry);
@@ -226,9 +233,9 @@ zink_get_gfx_pipeline(struct zink_context *ctx,
       } else {
          /* optimize by default only when expecting precompiles in order to reduce stuttering */
          if (DYNAMIC_STATE != ZINK_DYNAMIC_VERTEX_INPUT2 && DYNAMIC_STATE != ZINK_DYNAMIC_VERTEX_INPUT)
-            pc_entry->pipeline = zink_create_gfx_pipeline(screen, prog, prog->objs, state, state->element_state->binding_map, vkmode, !HAVE_LIB, NULL);
+            pc_entry->pipeline = zink_create_gfx_pipeline(screen, prog, prog->objs, state, state->element_state->binding_map, vkmode, !HAVE_LIB);
          else
-            pc_entry->pipeline = zink_create_gfx_pipeline(screen, prog, prog->objs, state, NULL, vkmode, !HAVE_LIB, NULL);
+            pc_entry->pipeline = zink_create_gfx_pipeline(screen, prog, prog->objs, state, NULL, vkmode, !HAVE_LIB);
          if (HAVE_LIB && !prog->is_separable)
             /* trigger async optimized pipeline compile if this was an unoptimized pipeline */
             zink_gfx_program_compile_queue(ctx, pc_entry);
@@ -243,8 +250,8 @@ zink_get_gfx_pipeline(struct zink_context *ctx,
    state->pipeline = cache_entry->pipeline;
    /* update states for fastpath */
    if (DYNAMIC_STATE >= ZINK_DYNAMIC_VERTEX_INPUT) {
-      prog->last_finalized_hash[rp_idx][idx] = state->final_hash;
-      prog->last_pipeline[rp_idx][idx] = cache_entry->pipeline;
+      prog->last_finalized_hash[idx] = state->final_hash;
+      prog->last_pipeline[idx] = cache_entry;
    }
    return state->pipeline;
 }

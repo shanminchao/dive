@@ -1,22 +1,5 @@
 # Copyright © 2017 Intel Corporation
-
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+# SPDX-License-Identifier: MIT
 
 files_r600 = files(
   'r600d_common.h',
@@ -35,6 +18,7 @@ files_r600 = files(
   'r600_asm.h',
   'r600_blit.c',
   'r600d.h',
+  'r600_atomics.h',
   'r600_dump.c',
   'r600_dump.h',
   'r600_formats.h',
@@ -45,8 +29,11 @@ files_r600 = files(
   'r600_pipe.c',
   'r600_pipe.h',
   'r600_public.h',
+  'r600_sfn.cpp',
+  'r600_sfn.h',
   'r600_shader.c',
   'r600_shader.h',
+  'r600_shader_common.h',
   'r600_sq.h',
   'r600_state.c',
   'r600_state_common.c',
@@ -158,13 +145,6 @@ egd_tables_h = custom_target(
 )
 
 r600_c_args = []
-if with_gallium_opencl
-  if dep_elf.found()
-    r600_c_args += '-DHAVE_OPENCL'
-  else
-    warning('r600 requires libelf to support opencl.')
-  endif
-endif
 
 r600_cpp_args = []
 if cpp.has_type('std::pmr::monotonic_buffer_resource',
@@ -174,16 +154,15 @@ endif
 
 libr600 = static_library(
   'r600',
-  [files_r600, egd_tables_h],
+  [files_r600, egd_tables_h, sha1_h],
   c_args : [r600_c_args, '-Wstrict-overflow=0'],
   cpp_args: r600_cpp_args,
   gnu_symbol_visibility : 'hidden',
   include_directories : [
-    inc_src, inc_mapi, inc_mesa, inc_include, inc_gallium, inc_gallium_aux, inc_amd_common,
+    inc_src, inc_include, inc_gallium, inc_gallium_aux, inc_amd_common,
     inc_gallium_drivers,
   ],
-
-  dependencies: [dep_libdrm_radeon, dep_elf, dep_llvm, idep_nir, idep_nir_headers],
+  dependencies: [dep_llvm, idep_nir, idep_nir_headers, idep_mesautil],
 )
 
 driver_r600 = declare_dependency(

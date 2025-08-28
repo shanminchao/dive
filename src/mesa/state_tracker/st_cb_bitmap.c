@@ -141,7 +141,8 @@ st_make_bitmap_texture(struct gl_context *ctx, GLsizei width, GLsizei height,
     */
    pt = st_texture_create(st, st->internal_target, st->bitmap.tex_format,
                           0, width, height, 1, 1, 0,
-                          PIPE_BIND_SAMPLER_VIEW, false);
+                          PIPE_BIND_SAMPLER_VIEW, false,
+                          PIPE_COMPRESSION_FIXED_RATE_NONE);
    if (!pt) {
       _mesa_unmap_pbo_source(ctx, unpack);
       return NULL;
@@ -186,7 +187,7 @@ setup_render_state(struct gl_context *ctx,
                      clamp_frag_color;
    key.lower_alpha_func = COMPARE_FUNC_ALWAYS;
 
-   fpv = st_get_fp_variant(st, fp, &key);
+   fpv = st_get_fp_variant(st, fp, &key, false, NULL);
 
    /* As an optimization, Mesa's fragment programs will sometimes get the
     * primary color from a statevar/constant rather than a varying variable.
@@ -236,21 +237,25 @@ setup_render_state(struct gl_context *ctx,
          samplers[i] = &st->state.frag_samplers[i];
       }
       samplers[fpv->bitmap_sampler] = &st->bitmap.sampler;
-      cso_set_samplers(cso, PIPE_SHADER_FRAGMENT, num,
+      cso_set_samplers(cso, MESA_SHADER_FRAGMENT, num,
                        (const struct pipe_sampler_state **) samplers);
    }
 
    /* user textures, plus the bitmap texture */
    {
+      unsigned extra_sampler_views = 0;
       struct pipe_sampler_view *sampler_views[PIPE_MAX_SAMPLERS];
       unsigned num_views =
-         st_get_sampler_views(st, PIPE_SHADER_FRAGMENT, fp, sampler_views);
+         st_get_sampler_views(st, MESA_SHADER_FRAGMENT, fp, sampler_views, &extra_sampler_views);
 
       num_views = MAX2(fpv->bitmap_sampler + 1, num_views);
       sampler_views[fpv->bitmap_sampler] = sv;
-      pipe->set_sampler_views(pipe, PIPE_SHADER_FRAGMENT, 0, num_views, 0,
-                              true, sampler_views);
-      st->state.num_sampler_views[PIPE_SHADER_FRAGMENT] = num_views;
+      pipe->set_sampler_views(pipe, MESA_SHADER_FRAGMENT, 0, num_views, 0,
+                              sampler_views);
+      st->state.num_sampler_views[MESA_SHADER_FRAGMENT] = num_views;
+
+      for (unsigned i = 0; i < num_views; i++)
+         pipe->sampler_view_release(pipe, sampler_views[i]);
    }
 
    /* viewport state: viewport matching window dims */
@@ -261,7 +266,7 @@ setup_render_state(struct gl_context *ctx,
    st->util_velems.count = 3;
    cso_set_vertex_elements(cso, &st->util_velems);
 
-   cso_set_stream_outputs(st->cso_context, 0, NULL, NULL);
+   cso_set_stream_outputs(st->cso_context, 0, NULL, NULL, 0);
 }
 
 
@@ -278,7 +283,7 @@ restore_render_state(struct gl_context *ctx)
     * use them.
     */
    cso_restore_state(cso, CSO_UNBIND_FS_SAMPLERVIEWS);
-   st->state.num_sampler_views[PIPE_SHADER_FRAGMENT] = 0;
+   st->state.num_sampler_views[MESA_SHADER_FRAGMENT] = 0;
 
    ctx->Array.NewVertexElements = true;
    ctx->NewDriverState |= ST_NEW_VERTEX_ARRAYS |
@@ -318,7 +323,7 @@ draw_bitmap_quad(struct gl_context *ctx, GLint x, GLint y, GLfloat z,
        * it up into chunks.
        */
       ASSERTED GLuint maxSize =
-         st->screen->get_param(st->screen, PIPE_CAP_MAX_TEXTURE_2D_SIZE);
+         st->screen->caps.max_texture_2d_size;
       assert(width <= (GLsizei) maxSize);
       assert(height <= (GLsizei) maxSize);
    }
@@ -369,7 +374,8 @@ reset_cache(struct st_context *st)
                                       BITMAP_CACHE_WIDTH, BITMAP_CACHE_HEIGHT,
                                       1, 1, 0,
                                       PIPE_BIND_SAMPLER_VIEW,
-                                      false);
+                                      false,
+                                      PIPE_COMPRESSION_FIXED_RATE_NONE);
 }
 
 

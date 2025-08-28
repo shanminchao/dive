@@ -1,32 +1,14 @@
 /* -*- mesa-c++  -*-
- *
- * Copyright (c) 2022 Collabora LTD
- *
+ * Copyright 2022 Collabora LTD
  * Author: Gert Wollny <gert.wollny@collabora.com>
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * on the rights to use, copy, modify, merge, publish, distribute, sub
- * license, and/or sell copies of the Software, and to permit persons to whom
- * the Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice (including the next
- * paragraph) shall be included in all copies or substantial portions of the
- * Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHOR(S) AND/OR THEIR SUPPLIERS BE LIABLE FOR ANY CLAIM,
- * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
- * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
- * USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  */
 
 #include "sfn_assembler.h"
 
 #include "../eg_sq.h"
+#include "../r600_asm.h"
+
 #include "sfn_callstack.h"
 #include "sfn_conditionaljumptracker.h"
 #include "sfn_debug.h"
@@ -150,10 +132,10 @@ AssamblerVisitor::AssamblerVisitor(r600_shader *sh, const r600_shader_key& key,
     ps_alpha_to_one(key.ps.alpha_to_one),
     m_legacy_math_rules(legacy_math_rules)
 {
-   if (m_shader->processor_type == PIPE_SHADER_FRAGMENT)
+   if (m_shader->processor_type == MESA_SHADER_FRAGMENT)
       m_max_color_exports = MAX2(m_key.ps.nr_cbufs, 1);
 
-   if (m_shader->processor_type == PIPE_SHADER_VERTEX && m_shader->ninput > 0)
+   if (m_shader->processor_type == MESA_SHADER_VERTEX && m_shader->ninput > 0)
       r600_bytecode_add_cfinst(m_bc, CF_OP_CALL_FS);
 }
 
@@ -240,7 +222,7 @@ AssamblerVisitor::emit_lds_op(const AluInstr& lds)
       break;
    default:
       std::cerr << "\n R600: error op: " << lds << "\n";
-      unreachable("Unhandled LDS op");
+      UNREACHABLE("Unhandled LDS op");
    }
 
    copy_src(alu.src[0], lds.src(0));
@@ -347,7 +329,7 @@ AssamblerVisitor::emit_alu_op(const AluInstr& ai)
             case 1: kcache_index_mode = bim_zero; break;
             case 2: kcache_index_mode = bim_one; break;
             default:
-               unreachable("Unsupported index mode");
+               UNREACHABLE("Unsupported index mode");
             }
          } else {
             kcache_index_mode = bim_zero;
@@ -482,24 +464,7 @@ AssamblerVisitor::visit(const AluGroup& group)
    }
 
    auto [addr, is_index] = group.addr();
-
-   if (addr) {
-      if (!addr->has_flag(Register::addr_or_idx)) {
-         if (is_index) {
-            emit_index_reg(*addr, 0);
-         } else {
-            auto reg = addr->as_register();
-            assert(reg);
-            if (!m_last_addr || !m_bc->ar_loaded || !m_last_addr->equal_to(*reg)) {
-               m_last_addr = reg;
-               m_bc->ar_reg = reg->sel();
-               m_bc->ar_chan = reg->chan();
-               m_bc->ar_loaded = 0;
-               r600_load_ar(m_bc, group.addr_for_src());
-            }
-         }
-      }
-   }
+   assert(!addr || addr->has_flag(Register::addr_or_idx));
 
    for (auto& i : group) {
       if (i)
@@ -551,7 +516,7 @@ AssamblerVisitor::visit(const TexInstr& tex_instr)
    else
       tex.inst_mod = tex_instr.inst_mode();
    if (r600_bytecode_add_tex(m_bc, &tex)) {
-      R600_ERR("shader_from_nir: Error creating tex assembly instruction\n");
+      R600_ASM_ERR("shader_from_nir: Error creating tex assembly instruction\n");
       m_result = false;
    }
 }
@@ -588,7 +553,8 @@ AssamblerVisitor::visit(const ExportInstr& exi)
       output.array_base = exi.location();
       break;
    default:
-      R600_ERR("shader_from_nir: export %d type not yet supported\n", exi.export_type());
+      R600_ASM_ERR("shader_from_nir: export %d type not yet supported\n",
+                   exi.export_type());
       m_result = false;
    }
 
@@ -601,7 +567,7 @@ AssamblerVisitor::visit(const ExportInstr& exi)
 
    int r = 0;
    if ((r = r600_bytecode_add_output(m_bc, &output))) {
-      R600_ERR("Error adding export at location %d : err: %d\n", exi.location(), r);
+      R600_ASM_ERR("Error adding export at location %d : err: %d\n", exi.location(), r);
       m_result = false;
    }
 }
@@ -641,7 +607,7 @@ AssamblerVisitor::visit(const ScratchIOInstr& instr)
    }
 
    if (r600_bytecode_add_output(m_bc, &cf)) {
-      R600_ERR("shader_from_nir: Error creating SCRATCH_WR assembly instruction\n");
+      R600_ASM_ERR("shader_from_nir: Error creating SCRATCH_WR assembly instruction\n");
       m_result = false;
    }
 }
@@ -662,7 +628,7 @@ AssamblerVisitor::visit(const StreamOutInstr& instr)
    output.op = instr.op(m_shader->bc.gfx_level);
 
    if (r600_bytecode_add_output(m_bc, &output)) {
-      R600_ERR("shader_from_nir: Error creating stream output instruction\n");
+      R600_ASM_ERR("shader_from_nir: Error creating stream output instruction\n");
       m_result = false;
    }
 }
@@ -687,7 +653,7 @@ AssamblerVisitor::visit(const MemRingOutInstr& instr)
    output.array_base = instr.array_base();
 
    if (r600_bytecode_add_output(m_bc, &output)) {
-      R600_ERR("shader_from_nir: Error creating mem ring write instruction\n");
+      R600_ASM_ERR("shader_from_nir: Error creating mem ring write instruction\n");
       m_result = false;
    }
 }
@@ -763,19 +729,19 @@ AssamblerVisitor::visit(const FetchInstr& fetch_instr)
 
    if (fetch_instr.has_fetch_flag(FetchInstr::use_tc)) {
       if ((r600_bytecode_add_vtx_tc(m_bc, &vtx))) {
-         R600_ERR("shader_from_nir: Error creating tex assembly instruction\n");
+         R600_ASM_ERR("shader_from_nir: Error creating tex assembly instruction\n");
          m_result = false;
       }
 
    } else {
       if ((r600_bytecode_add_vtx(m_bc, &vtx))) {
-         R600_ERR("shader_from_nir: Error creating tex assembly instruction\n");
+         R600_ASM_ERR("shader_from_nir: Error creating tex assembly instruction\n");
          m_result = false;
       }
    }
 
    m_bc->cf_last->vpm =
-      (m_bc->type == PIPE_SHADER_FRAGMENT) && fetch_instr.has_fetch_flag(FetchInstr::vpm);
+      (m_bc->type == MESA_SHADER_FRAGMENT) && fetch_instr.has_fetch_flag(FetchInstr::vpm);
    m_bc->cf_last->barrier = 1;
 }
 
@@ -854,7 +820,7 @@ AssamblerVisitor::visit(const RatInstr& instr)
              instr.data_swz(2) == PIPE_SWIZZLE_MAX);
    }
 
-   cf->vpm = m_bc->type == PIPE_SHADER_FRAGMENT;
+   cf->vpm = m_bc->type == MESA_SHADER_FRAGMENT;
    cf->barrier = 1;
    cf->mark = instr.need_ack();
    cf->output.elem_size = instr.elm_size();
@@ -963,7 +929,7 @@ AssamblerVisitor::visit(const ControlFlowInstr& instr)
       emit_endif();
       break;
    case ControlFlowInstr::cf_loop_begin: {
-      bool use_vpm = m_shader->processor_type == PIPE_SHADER_FRAGMENT &&
+      bool use_vpm = m_shader->processor_type == MESA_SHADER_FRAGMENT &&
                      instr.has_instr_flag(Instr::vpm) &&
                      !instr.has_instr_flag(Instr::helper);
       emit_loop_begin(use_vpm);
@@ -989,7 +955,7 @@ AssamblerVisitor::visit(const ControlFlowInstr& instr)
       }
    } break;
    default:
-      unreachable("Unknown CF instruction type");
+      UNREACHABLE("Unknown CF instruction type");
    }
 }
 
@@ -1039,7 +1005,7 @@ AssamblerVisitor::visit(const GDSInstr& instr)
       m_result = false;
       return;
    }
-   m_bc->cf_last->vpm = PIPE_SHADER_FRAGMENT == m_bc->type;
+   m_bc->cf_last->vpm = MESA_SHADER_FRAGMENT == m_bc->type;
    m_bc->cf_last->barrier = 1;
 }
 
@@ -1047,14 +1013,14 @@ void
 AssamblerVisitor::visit(const LDSAtomicInstr& instr)
 {
    (void)instr;
-   unreachable("LDSAtomicInstr must be lowered to ALUInstr");
+   UNREACHABLE("LDSAtomicInstr must be lowered to ALUInstr");
 }
 
 void
 AssamblerVisitor::visit(const LDSReadInstr& instr)
 {
    (void)instr;
-   unreachable("LDSReadInstr must be lowered to ALUInstr");
+   UNREACHABLE("LDSReadInstr must be lowered to ALUInstr");
 }
 
 EBufferIndexMode
@@ -1164,7 +1130,7 @@ void
 AssamblerVisitor::emit_loop_begin(bool vpm)
 {
    r600_bytecode_add_cfinst(m_bc, CF_OP_LOOP_START_DX10);
-   m_bc->cf_last->vpm = vpm && m_bc->type == PIPE_SHADER_FRAGMENT;
+   m_bc->cf_last->vpm = vpm && m_bc->type == MESA_SHADER_FRAGMENT;
    m_jump_tracker.push(m_bc->cf_last, jt_loop);
    m_callstack.push(FC_LOOP);
    ++m_loop_nesting;
@@ -1203,9 +1169,9 @@ bool
 AssamblerVisitor::copy_dst(r600_bytecode_alu_dst& dst, const Register& d, bool write)
 {
    if (write && d.sel() > g_clause_local_end) {
-      R600_ERR("shader_from_nir: Don't support more then 123 GPRs + 4 clause "
-               "local, but try using %d\n",
-               d.sel());
+      R600_ASM_ERR("shader_from_nir: Don't support more then 123 GPRs + 4 clause "
+                   "local, but try using %d\n",
+                   d.sel());
       m_result = false;
       return false;
    }
@@ -1215,13 +1181,6 @@ AssamblerVisitor::copy_dst(r600_bytecode_alu_dst& dst, const Register& d, bool w
 
    if (m_last_addr && m_last_addr->equal_to(d))
       m_last_addr = nullptr;
-
-   for (int i = 0; i < 2; ++i) {
-      /* Force emitting index register, if we didn't emit it yet, because
-       * the register value will change now */
-      if (dst.sel == m_bc->index_reg[i] && dst.chan == m_bc->index_reg_chan[i])
-         m_bc->index_loaded[i] = false;
-   }
 
    return true;
 }
@@ -1288,7 +1247,7 @@ void
 EncodeSourceVisitor::visit(const LocalArray& value)
 {
    (void)value;
-   unreachable("An array can't be a source register");
+   UNREACHABLE("An array can't be a source register");
 }
 
 void

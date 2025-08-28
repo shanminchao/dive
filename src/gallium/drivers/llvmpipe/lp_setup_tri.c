@@ -361,7 +361,7 @@ do_triangle_ccw(struct lp_setup_context *setup,
    if (!tri)
       return false;
 
-#ifdef DEBUG
+#if MESA_DEBUG
    tri->v[0][0] = v0[0][0];
    tri->v[1][0] = v1[0][0];
    tri->v[2][0] = v2[0][0];
@@ -1040,7 +1040,7 @@ calc_fixed_position(struct lp_setup_context *setup,
                     const float (*v1)[4],
                     const float (*v2)[4])
 {
-   float pixel_offset = setup->multisample ? 0.0 : setup->pixel_offset;
+   float pixel_offset = setup->pixel_offset;
    /*
     * The rounding may not be quite the same with DETECT_ARCH_SSE
     * (util_iround right now only does nearest/even on x87,
