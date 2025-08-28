@@ -38,7 +38,6 @@
 
 #include "ir.h"
 #include "ir_builder.h"
-#include "linker.h"
 #include "glsl_parser_extras.h"
 #include "glsl_symbol_table.h"
 #include "main/consts_exts.h"
@@ -409,17 +408,17 @@ per_vertex_accumulator::add_field(int slot, const glsl_type *type,
 const glsl_type *
 per_vertex_accumulator::construct_interface_instance() const
 {
-   return glsl_type::get_interface_instance(this->fields, this->num_fields,
-                                            GLSL_INTERFACE_PACKING_STD140,
-                                            false,
-                                            "gl_PerVertex");
+   return glsl_interface_type(this->fields, this->num_fields,
+                              GLSL_INTERFACE_PACKING_STD140,
+                              false,
+                              "gl_PerVertex");
 }
 
 
 class builtin_variable_generator
 {
 public:
-   builtin_variable_generator(exec_list *instructions,
+   builtin_variable_generator(ir_exec_list *instructions,
                               struct _mesa_glsl_parse_state *state);
    void generate_constants();
    void generate_uniforms();
@@ -435,7 +434,7 @@ public:
 private:
    const glsl_type *array(const glsl_type *base, unsigned elements)
    {
-      return glsl_type::get_array_instance(base, elements);
+      return glsl_array_type(base, elements, 0);
    }
 
    const glsl_type *type(const char *name)
@@ -512,7 +511,7 @@ private:
       add_varying(slot, type, GLSL_PRECISION_NONE, name, interp);
    }
 
-   exec_list * const instructions;
+   ir_exec_list * const instructions;
    struct _mesa_glsl_parse_state * const state;
    glsl_symbol_table * const symtab;
 
@@ -532,6 +531,7 @@ private:
    const glsl_type * const vec3_t;
    const glsl_type * const vec4_t;
    const glsl_type * const uvec3_t;
+   const glsl_type * const uvec4_t;
    const glsl_type * const mat3_t;
    const glsl_type * const mat4_t;
 
@@ -541,16 +541,16 @@ private:
 
 
 builtin_variable_generator::builtin_variable_generator(
-   exec_list *instructions, struct _mesa_glsl_parse_state *state)
+   ir_exec_list *instructions, struct _mesa_glsl_parse_state *state)
    : instructions(instructions), state(state), symtab(state->symbols),
      compatibility(state->compat_shader || state->ARB_compatibility_enable),
-     bool_t(glsl_type::bool_type), int_t(glsl_type::int_type),
-     uint_t(glsl_type::uint_type),
-     uint64_t(glsl_type::uint64_t_type),
-     float_t(glsl_type::float_type), vec2_t(glsl_type::vec2_type),
-     vec3_t(glsl_type::vec3_type), vec4_t(glsl_type::vec4_type),
-     uvec3_t(glsl_type::uvec3_type),
-     mat3_t(glsl_type::mat3_type), mat4_t(glsl_type::mat4_type)
+     bool_t(&glsl_type_builtin_bool), int_t(&glsl_type_builtin_int),
+     uint_t(&glsl_type_builtin_uint),
+     uint64_t(&glsl_type_builtin_uint64_t),
+     float_t(&glsl_type_builtin_float), vec2_t(&glsl_type_builtin_vec2),
+     vec3_t(&glsl_type_builtin_vec3), vec4_t(&glsl_type_builtin_vec4),
+     uvec3_t(&glsl_type_builtin_uvec3), uvec4_t(&glsl_type_builtin_uvec4),
+     mat3_t(&glsl_type_builtin_mat3), mat4_t(&glsl_type_builtin_mat4)
 {
 }
 
@@ -561,7 +561,7 @@ builtin_variable_generator::add_index_variable(const char *name,
                                                enum ir_variable_mode mode,
                                                int slot, int index)
 {
-   ir_variable *var = new(symtab) ir_variable(type, name, mode);
+   ir_variable *var = new(state->linalloc) ir_variable(type, name, mode);
    var->data.how_declared = ir_var_declared_implicitly;
 
    switch (var->data.mode) {
@@ -607,7 +607,7 @@ builtin_variable_generator::add_variable(const char *name,
                                          enum ir_variable_mode mode, int slot,
                                          enum glsl_interp_mode interp)
 {
-   ir_variable *var = new(symtab) ir_variable(type, name, mode);
+   ir_variable *var = new(state->linalloc) ir_variable(type, name, mode);
    var->data.how_declared = ir_var_declared_implicitly;
 
    switch (var->data.mode) {
@@ -669,7 +669,7 @@ builtin_variable_generator::add_uniform(const glsl_type *type,
       _mesa_glsl_get_builtin_uniform_desc(name);
    assert(statevar != NULL);
 
-   const unsigned array_count = type->is_array() ? type->length : 1;
+   const unsigned array_count = glsl_type_is_array(type) ? type->length : 1;
 
    ir_state_slot *slots =
       uni->allocate_state_slots(array_count * statevar->num_elements);
@@ -680,7 +680,7 @@ builtin_variable_generator::add_uniform(const glsl_type *type,
 	    &statevar->elements[j];
 
 	 memcpy(slots->tokens, element->tokens, sizeof(element->tokens));
-	 if (type->is_array())
+	 if (glsl_type_is_array(type))
             slots->tokens[1] = a;
 
 	 slots++;
@@ -695,10 +695,10 @@ ir_variable *
 builtin_variable_generator::add_const(const char *name, int precision,
                                       int value)
 {
-   ir_variable *const var = add_variable(name, glsl_type::int_type,
+   ir_variable *const var = add_variable(name, &glsl_type_builtin_int,
                                          precision, ir_var_auto, -1);
-   var->constant_value = new(var) ir_constant(value);
-   var->constant_initializer = new(var) ir_constant(value);
+   var->constant_value = new(state->linalloc) ir_constant(value);
+   var->constant_initializer = new(state->linalloc) ir_constant(value);
    var->data.has_initializer = true;
    return var;
 }
@@ -708,7 +708,7 @@ ir_variable *
 builtin_variable_generator::add_const_ivec3(const char *name, int x, int y,
                                             int z)
 {
-   ir_variable *const var = add_variable(name, glsl_type::ivec3_type,
+   ir_variable *const var = add_variable(name, &glsl_type_builtin_ivec3,
                                          GLSL_PRECISION_HIGH,
                                          ir_var_auto, -1);
    ir_constant_data data;
@@ -716,9 +716,9 @@ builtin_variable_generator::add_const_ivec3(const char *name, int x, int y,
    data.i[0] = x;
    data.i[1] = y;
    data.i[2] = z;
-   var->constant_value = new(var) ir_constant(glsl_type::ivec3_type, &data);
+   var->constant_value = new(state->linalloc) ir_constant(&glsl_type_builtin_ivec3, &data);
    var->constant_initializer =
-      new(var) ir_constant(glsl_type::ivec3_type, &data);
+      new(state->linalloc) ir_constant(&glsl_type_builtin_ivec3, &data);
    var->data.has_initializer = true;
    return var;
 }
@@ -1117,6 +1117,23 @@ builtin_variable_generator::generate_special_vars()
       add_system_value(SYSTEM_VALUE_SUBGROUP_LE_MASK, uint64_t, "gl_SubGroupLeMaskARB");
       add_system_value(SYSTEM_VALUE_SUBGROUP_LT_MASK, uint64_t, "gl_SubGroupLtMaskARB");
    }
+
+   if (state->KHR_shader_subgroup_basic_enable) {
+      add_system_value(SYSTEM_VALUE_SUBGROUP_SIZE, uint_t, "gl_SubgroupSize");
+      add_system_value(SYSTEM_VALUE_SUBGROUP_INVOCATION, uint_t, "gl_SubgroupInvocationID");
+   }
+
+   if (state->KHR_shader_subgroup_ballot_enable) {
+      add_system_value(SYSTEM_VALUE_SUBGROUP_EQ_MASK, uvec4_t, "gl_SubgroupEqMask");
+      add_system_value(SYSTEM_VALUE_SUBGROUP_GE_MASK, uvec4_t, "gl_SubgroupGeMask");
+      add_system_value(SYSTEM_VALUE_SUBGROUP_GT_MASK, uvec4_t, "gl_SubgroupGtMask");
+      add_system_value(SYSTEM_VALUE_SUBGROUP_LE_MASK, uvec4_t, "gl_SubgroupLeMask");
+      add_system_value(SYSTEM_VALUE_SUBGROUP_LT_MASK, uvec4_t, "gl_SubgroupLtMask");
+   }
+   if (state->is_version(130, 300) && state->OVR_multiview_enable) {
+      add_system_value(SYSTEM_VALUE_VIEW_INDEX, int_t, GLSL_PRECISION_MEDIUM,
+                      "gl_ViewID_OVR");
+   }
 }
 
 
@@ -1480,6 +1497,11 @@ builtin_variable_generator::generate_cs_special_vars()
                     uvec3_t, "gl_GlobalInvocationID");
    add_system_value(SYSTEM_VALUE_LOCAL_INVOCATION_INDEX,
                     uint_t, "gl_LocalInvocationIndex");
+
+   if (state->KHR_shader_subgroup_basic_enable) {
+      add_system_value(SYSTEM_VALUE_NUM_SUBGROUPS, uint_t, "gl_NumSubgroups");
+      add_system_value(SYSTEM_VALUE_SUBGROUP_ID, uint_t, "gl_SubgroupID");
+   }
 }
 
 
@@ -1521,9 +1543,6 @@ builtin_variable_generator::add_varying(int slot, const glsl_type *type,
 void
 builtin_variable_generator::generate_varyings()
 {
-   const struct gl_shader_compiler_options *options =
-      &state->consts->ShaderCompilerOptions[state->stage];
-
    /* gl_Position and gl_PointSize are not visible from fragment shaders. */
    if (state->stage != MESA_SHADER_FRAGMENT) {
       add_varying(VARYING_SLOT_POS, vec4_t, GLSL_PRECISION_HIGH, "gl_Position");
@@ -1644,11 +1663,13 @@ builtin_variable_generator::generate_varyings()
          var->data.patch = fields[i].patch;
          var->init_interface_type(per_vertex_out_type);
 
-         var->data.invariant = fields[i].location == VARYING_SLOT_POS &&
-                               options->PositionAlwaysInvariant;
+         var->data.invariant = state->stage == MESA_SHADER_VERTEX &&
+                               fields[i].location == VARYING_SLOT_POS &&
+                               state->consts->VSPositionAlwaysInvariant;
 
-         var->data.precise = fields[i].location == VARYING_SLOT_POS &&
-                               options->PositionAlwaysPrecise;
+         var->data.precise = state->stage == MESA_SHADER_TESS_EVAL &&
+                             fields[i].location == VARYING_SLOT_POS &&
+                             state->consts->TESPositionAlwaysPrecise;
       }
    }
 }
@@ -1658,7 +1679,7 @@ builtin_variable_generator::generate_varyings()
 
 
 void
-_mesa_glsl_initialize_variables(exec_list *instructions,
+_mesa_glsl_initialize_variables(ir_exec_list *instructions,
 				struct _mesa_glsl_parse_state *state)
 {
    builtin_variable_generator gen(instructions, state);

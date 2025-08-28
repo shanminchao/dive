@@ -43,6 +43,7 @@ util_draw_vertex_buffer(struct pipe_context *pipe,
                         struct cso_context *cso,
                         struct pipe_resource *vbuf,
                         unsigned offset,
+                        bool vb_take_ownership,
                         enum mesa_prim prim_type,
                         unsigned num_verts,
                         unsigned num_attribs)
@@ -59,10 +60,10 @@ util_draw_vertex_buffer(struct pipe_context *pipe,
    /* note: vertex elements already set by caller */
 
    if (cso) {
-      cso_set_vertex_buffers(cso, 1, 0, false, &vbuffer);
+      cso_set_vertex_buffers(cso, 1, vb_take_ownership, &vbuffer);
       cso_draw_arrays(cso, prim_type, 0, num_verts);
    } else {
-      pipe->set_vertex_buffers(pipe, 1, 0, false, &vbuffer);
+      util_set_vertex_buffers(pipe, 1, vb_take_ownership, &vbuffer);
       util_draw_arrays(pipe, prim_type, 0, num_verts);
    }
 }
@@ -86,6 +87,24 @@ util_draw_user_vertex_buffer(struct cso_context *cso, void *buffer,
 
    /* note: vertex elements already set by caller */
 
-   cso_set_vertex_buffers(cso, 1, 0, false, &vbuffer);
+   cso_set_vertex_buffers(cso, 1, false, &vbuffer);
+   cso_draw_arrays(cso, prim_type, 0, num_verts);
+}
+
+/**
+ * Draw a user vertex buffer. This is the correct way.
+ * util_draw_user_vertex_buffer doesn't work with u_vbuf anymore.
+ */
+void
+util_draw_user_vertices(struct cso_context *cso, struct cso_velems_state *ve,
+                        void *buffer, enum mesa_prim prim_type,
+                        unsigned num_verts)
+{
+   struct pipe_vertex_buffer vbuffer = {0};
+
+   vbuffer.is_user_buffer = true;
+   vbuffer.buffer.user = buffer;
+
+   cso_set_vertex_buffers_and_elements(cso, ve, 1, true, &vbuffer);
    cso_draw_arrays(cso, prim_type, 0, num_verts);
 }

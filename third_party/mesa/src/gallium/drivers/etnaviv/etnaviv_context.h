@@ -32,12 +32,14 @@
 
 #include "etnaviv_resource.h"
 #include "etnaviv_tiling.h"
+#include "etnaviv_yuv.h"
 #include "pipe/p_context.h"
 #include "pipe/p_defines.h"
 #include "util/format/u_formats.h"
 #include "pipe/p_shader_tokens.h"
 #include "pipe/p_state.h"
 #include "util/slab.h"
+#include "util/u_framebuffer.h"
 #include <util/u_suballoc.h>
 
 struct pipe_screen;
@@ -99,8 +101,10 @@ enum etna_uniform_contents {
    ETNA_UNIFORM_TEXTURE_WIDTH,
    ETNA_UNIFORM_TEXTURE_HEIGHT,
    ETNA_UNIFORM_TEXTURE_DEPTH,
-   ETNA_UNIFORM_UBO0_ADDR,
-   ETNA_UNIFORM_UBOMAX_ADDR = ETNA_UNIFORM_UBO0_ADDR + ETNA_MAX_CONST_BUF - 1,
+   ETNA_UNIFORM_SAMPLER_LOD_MIN,
+   ETNA_UNIFORM_SAMPLER_LOD_MAX,
+   ETNA_UNIFORM_SAMPLER_LOD_BIAS,
+   ETNA_UNIFORM_UBO_ADDR,
 };
 
 struct etna_shader_uniform_info {
@@ -118,6 +122,8 @@ struct etna_context {
    struct etna_sampler_ts *(*ts_for_sampler_view)(struct pipe_sampler_view *pview);
    /* GPU-specific blit implementation */
    bool (*blit)(struct pipe_context *pipe, const struct pipe_blit_info *info);
+   /* GPU-specific implementation to emit yuv tiler state */
+   void (*emit_yuv_tiler_state)(struct etna_context *ctx, struct etna_yuv_config *config);
 
    struct etna_screen *screen;
    struct etna_cmd_stream *stream;
@@ -144,6 +150,7 @@ struct etna_context {
       ETNA_DIRTY_TEXTURE_CACHES  = (1 << 18),
       ETNA_DIRTY_DERIVE_TS       = (1 << 19),
       ETNA_DIRTY_SCISSOR_CLIP    = (1 << 20),
+      ETNA_DIRTY_SHADER_CACHES   = (1 << 21),
    } dirty;
 
    struct slab_child_pool transfer_pool;
@@ -173,7 +180,7 @@ struct etna_context {
    uint32_t active_sampler_views;
    uint32_t dirty_sampler_views;
    struct pipe_sampler_view *sampler_view[PIPE_MAX_SAMPLERS];
-   struct etna_constbuf_state constant_buffer[PIPE_SHADER_TYPES];
+   struct etna_constbuf_state constant_buffer[MESA_SHADER_STAGES];
    struct etna_vertexbuf_state vertex_buffer;
    struct etna_index_buffer index_buffer;
    struct etna_shader_state shader;
@@ -189,6 +196,7 @@ struct etna_context {
       uint64_t prims_generated;
       uint64_t draw_calls;
       uint64_t rs_operations;
+      uint64_t flushes;
    } stats;
 
    int in_fence_fd;
@@ -201,8 +209,12 @@ struct etna_context {
 
    /* resources that must be flushed implicitly at the context flush time */
    struct set *flush_resources;
+   /* resources that need to be updated after a context flush */
+   struct set *updated_resources;
 
    bool is_noop;
+
+   bool compute_only;
 
    /* conditional rendering */
    struct pipe_query *cond_query;

@@ -62,7 +62,7 @@ pp_blit(struct pipe_context *pipe,
    blit.src.box.depth = 1;
 
    blit.dst.resource = dst->texture;
-   blit.dst.level = dst->u.tex.level;
+   blit.dst.level = dst->level;
    blit.dst.format = dst->format;
    blit.dst.box.x = dstX0;
    blit.dst.box.y = dstY0;
@@ -110,7 +110,7 @@ pp_run(struct pp_queue_t *ppq, struct pipe_resource *in,
 
 
       pp_blit(ppq->p->pipe, in, 0, 0,
-              w, h, 0, ppq->tmps[0],
+              w, h, 0, &ppq->tmps[0],
               0, 0, w, h);
 
       in = ppq->tmp[0];
@@ -139,7 +139,7 @@ pp_run(struct pp_queue_t *ppq, struct pipe_resource *in,
    /* set default state */
    cso_set_sample_mask(cso, ~0);
    cso_set_min_samples(cso, 1);
-   cso_set_stream_outputs(cso, 0, NULL, NULL);
+   cso_set_stream_outputs(cso, 0, NULL, NULL, 0);
    cso_set_tessctrl_shader_handle(cso, NULL);
    cso_set_tesseval_shader_handle(cso, NULL);
    cso_set_geometry_shader_handle(cso, NULL);
@@ -188,8 +188,7 @@ pp_run(struct pp_queue_t *ppq, struct pipe_resource *in,
    cso_restore_state(cso, CSO_UNBIND_FS_SAMPLERVIEWS |
                           CSO_UNBIND_FS_IMAGE0 |
                           CSO_UNBIND_VS_CONSTANTS |
-                          CSO_UNBIND_FS_CONSTANTS |
-                          CSO_UNBIND_VERTEX_BUFFER0);
+                          CSO_UNBIND_FS_CONSTANTS);
 
    /* restore states not restored by cso */
    if (ppq->p->st) {
@@ -224,14 +223,14 @@ pp_filter_setup_out(struct pp_program *p, struct pipe_resource *out)
 {
    p->surf.format = out->format;
 
-   p->framebuffer.cbufs[0] = p->pipe->create_surface(p->pipe, out, &p->surf);
+   p->framebuffer.cbufs[0] = p->surf;
+   p->framebuffer.cbufs[0].texture = out;
 }
 
 /** Clean up the input and output set with the above. */
 void
 pp_filter_end_pass(struct pp_program *p)
 {
-   pipe_surface_reference(&p->framebuffer.cbufs[0], NULL);
    pipe_sampler_view_reference(&p->view, NULL);
 }
 
@@ -293,7 +292,7 @@ pp_filter_misc_state(struct pp_program *p)
 void
 pp_filter_draw(struct pp_program *p)
 {
-   util_draw_vertex_buffer(p->pipe, p->cso, p->vbuf, 0,
+   util_draw_vertex_buffer(p->pipe, p->cso, p->vbuf, 0, false,
                            MESA_PRIM_QUADS, 4, 2);
 }
 

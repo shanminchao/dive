@@ -327,7 +327,7 @@ nv30_set_sample_mask(struct pipe_context *pipe, unsigned sample_mask)
 
 static void
 nv30_set_constant_buffer(struct pipe_context *pipe,
-                         enum pipe_shader_type shader, uint index,
+                         mesa_shader_stage shader, uint index,
                          bool pass_reference,
                          const struct pipe_constant_buffer *cb)
 {
@@ -345,7 +345,7 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
    if (buf)
       size = buf->width0 / (4 * sizeof(float));
 
-   if (shader == PIPE_SHADER_VERTEX) {
+   if (shader == MESA_SHADER_VERTEX) {
       if (pass_reference) {
          pipe_resource_reference(&nv30->vertprog.constbuf, NULL);
          nv30->vertprog.constbuf = buf;
@@ -355,7 +355,7 @@ nv30_set_constant_buffer(struct pipe_context *pipe,
       nv30->vertprog.constbuf_nr = size;
       nv30->dirty |= NV30_NEW_VERTCONST;
    } else
-   if (shader == PIPE_SHADER_FRAGMENT) {
+   if (shader == MESA_SHADER_FRAGMENT) {
       if (pass_reference) {
          pipe_resource_reference(&nv30->fragprog.constbuf, NULL);
          nv30->fragprog.constbuf = buf;
@@ -379,25 +379,27 @@ nv30_set_framebuffer_state(struct pipe_context *pipe,
 
     nouveau_bufctx_reset(nv30->bufctx, BUFCTX_FB);
 
-    nv30->framebuffer = *fb;
+    util_copy_framebuffer_state(&nv30->framebuffer, fb);
     nv30->dirty |= NV30_NEW_FRAMEBUFFER;
 
    /* Hardware can't handle different swizzled-ness or different blocksizes
     * for zs and cbufs. If both are supplied and something doesn't match,
     * blank out the zs for now so that at least *some* rendering can occur.
     */
-    if (fb->nr_cbufs > 0 && fb->zsbuf) {
-       struct nv30_miptree *color_mt = nv30_miptree(fb->cbufs[0]->texture);
-       struct nv30_miptree *zeta_mt = nv30_miptree(fb->zsbuf->texture);
+    if (fb->nr_cbufs > 0 && fb->zsbuf.texture) {
+       struct nv30_miptree *color_mt = nv30_miptree(fb->cbufs[0].texture);
+       struct nv30_miptree *zeta_mt = nv30_miptree(fb->zsbuf.texture);
 
        if (color_mt->swizzled != zeta_mt->swizzled ||
            (color_mt->swizzled &&
-            (util_format_get_blocksize(fb->zsbuf->format) > 2) !=
-            (util_format_get_blocksize(fb->cbufs[0]->format) > 2))) {
-          nv30->framebuffer.zsbuf = NULL;
+            (util_format_get_blocksize(fb->zsbuf.format) > 2) !=
+            (util_format_get_blocksize(fb->cbufs[0].format) > 2))) {
+          pipe_resource_reference(&nv30->framebuffer.zsbuf.texture, NULL);
+          memset(&nv30->framebuffer.zsbuf, 0, sizeof(nv30->framebuffer.zsbuf));
           debug_printf("Mismatched color and zeta formats, ignoring zeta.\n");
        }
     }
+    nv30_framebuffer_init(pipe, &nv30->framebuffer, nv30->fb_cbufs, &nv30->fb_zsbuf);
 }
 
 static void
@@ -437,8 +439,6 @@ nv30_set_viewport_states(struct pipe_context *pipe,
 static void
 nv30_set_vertex_buffers(struct pipe_context *pipe,
                         unsigned count,
-                        unsigned unbind_num_trailing_slots,
-                        bool take_ownership,
                         const struct pipe_vertex_buffer *vb)
 {
     struct nv30_context *nv30 = nv30_context(pipe);
@@ -446,9 +446,7 @@ nv30_set_vertex_buffers(struct pipe_context *pipe,
     nouveau_bufctx_reset(nv30->bufctx, BUFCTX_VTXBUF);
 
     util_set_vertex_buffers_count(nv30->vtxbuf, &nv30->num_vtxbufs,
-                                  vb, count,
-                                  unbind_num_trailing_slots,
-                                  take_ownership);
+                                  vb, count, true);
 
     nv30->dirty |= NV30_NEW_ARRAYS;
 }

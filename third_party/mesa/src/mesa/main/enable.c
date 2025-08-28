@@ -501,6 +501,7 @@ _mesa_set_enable(struct gl_context *ctx, GLenum cap, GLboolean state)
                         GL_POLYGON_BIT | GL_ENABLE_BIT);
          ctx->NewDriverState |= ST_NEW_RASTERIZER;
          ctx->Polygon.CullFlag = state;
+         _mesa_update_edgeflag_state_vao(ctx);
          break;
       case GL_DEPTH_TEST:
          if (ctx->Depth.Test == state)
@@ -1267,7 +1268,7 @@ _mesa_set_enable(struct gl_context *ctx, GLenum cap, GLboolean state)
          break;
 
       case GL_PRIMITIVE_RESTART_FIXED_INDEX:
-         if (!_mesa_is_gles3(ctx) && !_mesa_has_ARB_ES3_compatibility(ctx))
+         if (!_mesa_is_gles3_compatible(ctx))
             goto invalid_enum_error;
          if (ctx->Array.PrimitiveRestartFixedIndex != state) {
             ctx->Array.PrimitiveRestartFixedIndex = state;
@@ -1294,7 +1295,7 @@ _mesa_set_enable(struct gl_context *ctx, GLenum cap, GLboolean state)
 
       /* ARB_texture_multisample */
       case GL_SAMPLE_MASK:
-         if (!_mesa_has_ARB_texture_multisample(ctx) && !_mesa_is_gles31(ctx))
+         if (!_mesa_has_texture_multisample(ctx))
             goto invalid_enum_error;
          if (ctx->Multisample.SampleMask == state)
             return;
@@ -1939,7 +1940,7 @@ _mesa_IsEnabled( GLenum cap )
          return ctx->Array.PrimitiveRestart;
 
       case GL_PRIMITIVE_RESTART_FIXED_INDEX:
-         if (!_mesa_is_gles3(ctx) && !_mesa_has_ARB_ES3_compatibility(ctx))
+         if (!_mesa_is_gles3_compatible(ctx))
             goto invalid_enum_error;
          return ctx->Array.PrimitiveRestartFixedIndex;
 
@@ -1958,7 +1959,7 @@ _mesa_IsEnabled( GLenum cap )
 
       /* ARB_texture_multisample */
       case GL_SAMPLE_MASK:
-         if (!_mesa_has_ARB_texture_multisample(ctx) && !_mesa_is_gles31(ctx))
+         if (!_mesa_has_texture_multisample(ctx))
             goto invalid_enum_error;
          return ctx->Multisample.SampleMask;
 

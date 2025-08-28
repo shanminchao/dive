@@ -1,27 +1,7 @@
 /* -*- mesa-c++  -*-
- *
- * Copyright (c) 2021 Collabora LTD
- *
+ * Copyright 2021 Collabora LTD
  * Author: Gert Wollny <gert.wollny@collabora.com>
- *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * on the rights to use, copy, modify, merge, publish, distribute, sub
- * license, and/or sell copies of the Software, and to permit persons to whom
- * the Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice (including the next
- * paragraph) shall be included in all copies or substantial portions of the
- * Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHOR(S) AND/OR THEIR SUPPLIERS BE LIABLE FOR ANY CLAIM,
- * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
- * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
- * USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  */
 
 #include "sfn_valuefactory.h"
@@ -53,7 +33,7 @@ ValueFactory::set_virtual_register_base(int base)
 }
 
 bool
-ValueFactory::allocate_registers(const std::list<nir_intrinsic_instr *>& regs)
+ValueFactory::allocate_registers(const nir_intrinsic_instr_alloc& regs)
 {
    struct array_entry {
       unsigned index;
@@ -165,6 +145,24 @@ ValueFactory::allocate_pinned_vec4(int sel, bool is_ssa)
       m_pinned_registers.push_back(retval[i]);
    }
    return retval;
+}
+
+LocalArray *
+ValueFactory::allocate_pinned_array(int start, int size, int channels)
+{
+   auto array = new LocalArray(start, channels, 4, 0);
+
+   for (int i = 0; i < channels; ++i) {
+      RegisterKey key(start, i, vp_array);
+      m_registers[key] = array;
+   }
+
+   for (auto reg : *array) {
+      reg->set_pin(pin_fully);
+      reg->set_flag(Register::pin_start);
+      reg->set_flag(Register::ssa);
+   }
+   return array;
 }
 
 void
@@ -354,7 +352,8 @@ ValueFactory::dest(const nir_def& ssa, int chan, Pin pin_channel, uint8_t chan_m
       sel = m_next_register_index++;
       sfn_log << SfnLog::reg << "Assign " << sel << " to index " << ssa.index << " in "
               << &m_ssa_index_to_sel << "\n";
-      m_ssa_index_to_sel[ssa.index] = sel;
+      if (pin_channel != pin_free)
+         m_ssa_index_to_sel[ssa.index] = sel;
    }
 
    if (pin_channel == pin_free)
@@ -424,7 +423,7 @@ ValueFactory::ssa_src(const nir_def& ssa, int chan)
       return iarray->second;
 
    std::cerr << "Didn't find source with key " << key << "\n";
-   unreachable("Source values should always exist");
+   UNREACHABLE("Source values should always exist");
 }
 
 PVirtualValue
@@ -483,7 +482,7 @@ ValueFactory::src_vec4(const nir_src& source, Pin pin, const RegisterVec4::Swizz
 
    int sel = sx ? sx->sel() : (sy ? sy->sel() : (sz ? sz->sel() : sw ? sw->sel() : -1));
    if (sel < 0)
-      unreachable("source vector without valid components");
+      UNREACHABLE("source vector without valid components");
 
    if (!sx)
       sx = new Register(sel, 7, pin);
@@ -534,7 +533,7 @@ chan_from_char(char chan)
    case '_':
       return 7;
    }
-   unreachable("Unknown swizzle char");
+   UNREACHABLE("Unknown swizzle char");
 }
 
 static int
@@ -587,7 +586,7 @@ split_register_string(const string& s,
          size_str.append(1, s[i]);
          break;
       default:
-         unreachable("Malformed Array allocation string");
+         UNREACHABLE("Malformed Array allocation string");
       }
    }
    return true;
@@ -649,7 +648,7 @@ ValueFactory::dest_from_string(const std::string& s)
       pool = vp_ssa;
       break;
    default:
-      unreachable("Unknown value type");
+      UNREACHABLE("Unknown value type");
    }
 
    bool is_ssa = s[0] == 'S';
@@ -721,7 +720,7 @@ ValueFactory::src_from_string(const std::string& s)
 
    default:
       std::cerr << "'" << s << "'";
-      unreachable("Unknown register type");
+      UNREACHABLE("Unknown register type");
    }
 
    assert(strchr("ARS_", s[0]));
@@ -759,7 +758,7 @@ ValueFactory::src_from_string(const std::string& s)
       pool = vp_ssa;
       break;
    default:
-      unreachable("Unknown value type");
+      UNREACHABLE("Unknown value type");
    }
 
    RegisterKey key(sel, chan, pool);
@@ -784,7 +783,7 @@ ValueFactory::src_from_string(const std::string& s)
    } else {
       if (sel != std::numeric_limits<int>::max()) {
          std::cerr << "register " << key << "not found \n";
-         unreachable("Source register should exist");
+         UNREACHABLE("Source register should exist");
       } else {
          auto reg = new Register(sel, chan, p);
          m_registers[key] = reg;
@@ -902,7 +901,7 @@ ValueFactory::array_from_string(const std::string& s)
          size_str.append(1, s[i]);
          break;
       default:
-         unreachable("Malformed Array allocation string");
+         UNREACHABLE("Malformed Array allocation string");
       }
    }
 

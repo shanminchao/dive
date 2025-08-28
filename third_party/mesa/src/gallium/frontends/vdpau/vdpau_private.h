@@ -42,6 +42,7 @@
 
 #include "util/u_debug.h"
 #include "util/u_rect.h"
+#include "util/u_surface.h"
 #include "util/u_thread.h"
 
 #include "vl/vl_video_buffer.h"
@@ -162,6 +163,25 @@ FormatYCBCRToPipe(VdpYCbCrFormat vdpau_format)
 
 }
 
+static inline enum pipe_format
+ChromaToPipeFormat(VdpChromaType vdpau_type)
+{
+   switch (vdpau_type) {
+      case VDP_CHROMA_TYPE_420:
+         return PIPE_FORMAT_NV12;
+#ifdef VDP_CHROMA_TYPE_420_16
+      case VDP_CHROMA_TYPE_420_16:
+         return PIPE_FORMAT_P016;
+#endif
+      case VDP_CHROMA_TYPE_422:
+         return PIPE_FORMAT_UYVY;
+      default:
+         assert(0);
+   }
+
+   return PIPE_FORMAT_NONE;
+}
+
 static inline VdpYCbCrFormat
 PipeToFormatYCBCR(enum pipe_format p_format)
 {
@@ -276,6 +296,8 @@ ProfileToPipe(VdpDecoderProfile vdpau_profile)
          return PIPE_VIDEO_PROFILE_HEVC_MAIN_12;
       case VDP_DECODER_PROFILE_HEVC_MAIN_444:
          return PIPE_VIDEO_PROFILE_HEVC_MAIN_444;
+      case VDP_DECODER_PROFILE_AV1_MAIN:
+         return PIPE_VIDEO_PROFILE_AV1_MAIN;
       default:
          return PIPE_VIDEO_PROFILE_UNKNOWN;
    }
@@ -319,6 +341,8 @@ PipeToProfile(enum pipe_video_profile p_profile)
          return VDP_DECODER_PROFILE_HEVC_MAIN_12;
       case PIPE_VIDEO_PROFILE_HEVC_MAIN_444:
          return VDP_DECODER_PROFILE_HEVC_MAIN_444;
+      case PIPE_VIDEO_PROFILE_AV1_MAIN:
+         return VDP_DECODER_PROFILE_AV1_MAIN;
       default:
          assert(0);
          return -1;
@@ -428,7 +452,7 @@ typedef struct
 typedef struct
 {
    vlVdpDevice *device;
-   struct pipe_video_buffer templat, *video_buffer;
+   struct pipe_video_buffer templat, *video_buffer, *ref_buffer;
 } vlVdpSurface;
 
 typedef struct
@@ -442,7 +466,7 @@ typedef uint64_t vlVdpTime;
 typedef struct
 {
    vlVdpDevice *device;
-   struct pipe_surface *surface;
+   struct pipe_surface surface;
    struct pipe_sampler_view *sampler_view;
    struct pipe_fence_handle *fence;
    struct vl_compositor_state cstate;

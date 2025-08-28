@@ -23,12 +23,17 @@
 
 #include "brw_kernel.h"
 #include "brw_nir.h"
+#include "elk/elk_nir_options.h"
+#include "intel_nir.h"
 
+#include "intel_nir.h"
 #include "nir_clc_helpers.h"
 #include "compiler/nir/nir_builder.h"
 #include "compiler/spirv/nir_spirv.h"
+#include "compiler/spirv/spirv_info.h"
 #include "dev/intel_debug.h"
 #include "util/u_atomic.h"
+#include "util/u_dynarray.h"
 
 static const nir_shader *
 load_clc_shader(struct brw_compiler *compiler, struct disk_cache *disk_cache,
@@ -48,6 +53,7 @@ load_clc_shader(struct brw_compiler *compiler, struct disk_cache *disk_cache,
       p_atomic_cmpxchg(&compiler->clc_shader, NULL, nir);
    if (old_nir == NULL) {
       /* We won the race */
+      ralloc_steal(compiler, nir);
       return nir;
    } else {
       /* Someone else built the shader first */
@@ -225,15 +231,39 @@ lower_kernel_intrinsics(nir_shader *nir)
       }
    }
 
-   if (progress) {
-      nir_metadata_preserve(impl, nir_metadata_block_index |
-                                  nir_metadata_dominance);
-   } else {
-      nir_metadata_preserve(impl, nir_metadata_all);
-   }
-
-   return progress;
+   return nir_progress(progress, impl, nir_metadata_control_flow);
 }
+
+static const struct spirv_capabilities spirv_caps = {
+   .Addresses = true,
+   .Float16 = true,
+   .Float64 = true,
+   .Groups = true,
+   .StorageImageWriteWithoutFormat = true,
+   .Int8 = true,
+   .Int16 = true,
+   .Int64 = true,
+   .Int64Atomics = true,
+   .Kernel = true,
+   .Linkage = true, /* We receive linked kernel from clc */
+   .DenormFlushToZero = true,
+   .DenormPreserve = true,
+   .SignedZeroInfNanPreserve = true,
+   .RoundingModeRTE = true,
+   .RoundingModeRTZ = true,
+   .GenericPointer = true,
+   .GroupNonUniform = true,
+   .GroupNonUniformArithmetic = true,
+   .GroupNonUniformClustered = true,
+   .GroupNonUniformBallot = true,
+   .GroupNonUniformQuad = true,
+   .GroupNonUniformShuffle = true,
+   .GroupNonUniformVote = true,
+   .SubgroupDispatch = true,
+
+   .SubgroupShuffleINTEL = true,
+   .SubgroupBufferBlockIOINTEL = true,
+};
 
 bool
 brw_kernel_from_spirv(struct brw_compiler *compiler,
@@ -250,33 +280,8 @@ brw_kernel_from_spirv(struct brw_compiler *compiler,
 
    struct spirv_to_nir_options spirv_options = {
       .environment = NIR_SPIRV_OPENCL,
-      .caps = {
-         .address = true,
-         .float16 = devinfo->ver >= 8,
-         .float64 = devinfo->ver >= 8,
-         .groups = true,
-         .image_write_without_format = true,
-         .int8 = devinfo->ver >= 8,
-         .int16 = devinfo->ver >= 8,
-         .int64 = devinfo->ver >= 8,
-         .int64_atomics = devinfo->ver >= 9,
-         .kernel = true,
-         .linkage = true, /* We receive linked kernel from clc */
-         .float_controls = devinfo->ver >= 8,
-         .generic_pointers = true,
-         .storage_8bit = devinfo->ver >= 8,
-         .storage_16bit = devinfo->ver >= 8,
-         .subgroup_arithmetic = true,
-         .subgroup_basic = true,
-         .subgroup_ballot = true,
-         .subgroup_dispatch = true,
-         .subgroup_quad = true,
-         .subgroup_shuffle = true,
-         .subgroup_vote = true,
-
-         .intel_subgroup_shuffle = true,
-         .intel_subgroup_buffer_block_io = true,
-      },
+      .capabilities = &spirv_caps,
+      .printf = true,
       .shared_addr_format = nir_address_format_62bit_generic,
       .global_addr_format = nir_address_format_62bit_generic,
       .temp_addr_format = nir_address_format_62bit_generic,
@@ -296,7 +301,6 @@ brw_kernel_from_spirv(struct brw_compiler *compiler,
       spirv_to_nir(spirv, spirv_size / 4, NULL, 0, MESA_SHADER_KERNEL,
                    entrypoint_name, &spirv_options, nir_options);
    nir_validate_shader(nir, "after spirv_to_nir");
-   nir_validate_ssa_dominance(nir, "after spirv_to_nir");
    ralloc_steal(mem_ctx, nir);
    nir->info.name = ralloc_strdup(nir, entrypoint_name);
 
@@ -310,18 +314,18 @@ brw_kernel_from_spirv(struct brw_compiler *compiler,
       nir_print_shader(nir, stderr);
    }
 
-   NIR_PASS_V(nir, implement_intel_builtins);
-   NIR_PASS_V(nir, nir_link_shader_functions, spirv_options.clc_shader);
+   NIR_PASS(_, nir, implement_intel_builtins);
+   NIR_PASS(_, nir, nir_link_shader_functions, spirv_options.clc_shader);
 
    /* We have to lower away local constant initializers right before we
     * inline functions.  That way they get properly initialized at the top
     * of the function and not at the top of its caller.
     */
-   NIR_PASS_V(nir, nir_lower_variable_initializers, nir_var_function_temp);
-   NIR_PASS_V(nir, nir_lower_returns);
-   NIR_PASS_V(nir, nir_inline_functions);
-   NIR_PASS_V(nir, nir_copy_prop);
-   NIR_PASS_V(nir, nir_opt_deref);
+   NIR_PASS(_, nir, nir_lower_variable_initializers, nir_var_function_temp);
+   NIR_PASS(_, nir, nir_lower_returns);
+   NIR_PASS(_, nir, nir_inline_functions);
+   NIR_PASS(_, nir, nir_copy_prop);
+   NIR_PASS(_, nir, nir_opt_deref);
 
    /* Pick off the single entrypoint that we want */
    nir_remove_non_entrypoints(nir);
@@ -331,14 +335,14 @@ brw_kernel_from_spirv(struct brw_compiler *compiler,
     * nir_remove_dead_variables and split_per_member_structs below see the
     * corresponding stores.
     */
-   NIR_PASS_V(nir, nir_lower_variable_initializers, ~0);
+   NIR_PASS(_, nir, nir_lower_variable_initializers, ~0);
 
    /* LLVM loves take advantage of the fact that vec3s in OpenCL are 16B
     * aligned and so it can just read/write them as vec4s.  This results in a
     * LOT of vec4->vec3 casts on loads and stores.  One solution to this
     * problem is to get rid of all vec3 variables.
     */
-   NIR_PASS_V(nir, nir_lower_vec3_to_vec4,
+   NIR_PASS(_, nir, nir_lower_vec3_to_vec4,
               nir_var_shader_temp | nir_var_function_temp |
               nir_var_mem_shared | nir_var_mem_global|
               nir_var_mem_constant);
@@ -346,7 +350,7 @@ brw_kernel_from_spirv(struct brw_compiler *compiler,
    /* We assign explicit types early so that the optimizer can take advantage
     * of that information and hopefully get rid of some of our memcpys.
     */
-   NIR_PASS_V(nir, nir_lower_vars_to_explicit_types,
+   NIR_PASS(_, nir, nir_lower_vars_to_explicit_types,
               nir_var_uniform |
               nir_var_shader_temp | nir_var_function_temp |
               nir_var_mem_shared | nir_var_mem_global,
@@ -380,7 +384,7 @@ brw_kernel_from_spirv(struct brw_compiler *compiler,
       args[var->data.location] = arg_desc;
    }
 
-   NIR_PASS_V(nir, nir_remove_dead_variables, nir_var_all, NULL);
+   NIR_PASS(_, nir, nir_remove_dead_variables, nir_var_all, NULL);
 
    /* Lower again, this time after dead-variables to get more compact variable
     * layouts.
@@ -388,7 +392,7 @@ brw_kernel_from_spirv(struct brw_compiler *compiler,
    nir->global_mem_size = 0;
    nir->scratch_size = 0;
    nir->info.shared_size = 0;
-   NIR_PASS_V(nir, nir_lower_vars_to_explicit_types,
+   NIR_PASS(_, nir, nir_lower_vars_to_explicit_types,
               nir_var_shader_temp | nir_var_function_temp |
               nir_var_mem_shared | nir_var_mem_global | nir_var_mem_constant,
               glsl_get_cl_type_size_align);
@@ -410,23 +414,23 @@ brw_kernel_from_spirv(struct brw_compiler *compiler,
       nir_print_shader(nir, stderr);
    }
 
-   NIR_PASS_V(nir, nir_lower_memcpy);
+   NIR_PASS(_, nir, nir_lower_memcpy);
 
-   NIR_PASS_V(nir, nir_lower_explicit_io, nir_var_mem_constant,
+   NIR_PASS(_, nir, nir_lower_explicit_io, nir_var_mem_constant,
               nir_address_format_64bit_global);
 
-   NIR_PASS_V(nir, nir_lower_explicit_io, nir_var_uniform,
+   NIR_PASS(_, nir, nir_lower_explicit_io, nir_var_uniform,
               nir_address_format_32bit_offset_as_64bit);
 
-   NIR_PASS_V(nir, nir_lower_explicit_io,
+   NIR_PASS(_, nir, nir_lower_explicit_io,
               nir_var_shader_temp | nir_var_function_temp |
               nir_var_mem_shared | nir_var_mem_global,
               nir_address_format_62bit_generic);
 
-   NIR_PASS_V(nir, nir_lower_convert_alu_types, NULL);
+   NIR_PASS(_, nir, nir_lower_convert_alu_types, NULL);
 
-   NIR_PASS_V(nir, brw_nir_lower_cs_intrinsics);
-   NIR_PASS_V(nir, lower_kernel_intrinsics);
+   NIR_PASS(_, nir, brw_nir_lower_cs_intrinsics, devinfo, NULL);
+   NIR_PASS(_, nir, lower_kernel_intrinsics);
 
    struct brw_cs_prog_key key = { };
 

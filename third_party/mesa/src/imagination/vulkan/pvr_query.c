@@ -27,6 +27,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <vulkan/vulkan.h>
 
 #include "pvr_bo.h"
@@ -68,7 +69,7 @@ VkResult pvr_CreateQueryPool(VkDevice _device,
       return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
 
    pool->result_stride =
-      ALIGN_POT(query_size, PVRX(CR_ISP_OCLQRY_BASE_ADDR_ALIGNMENT));
+      ALIGN_POT(query_size, ROGUE_CR_ISP_OCLQRY_BASE_ADDR_ALIGNMENT);
 
    pool->query_count = pCreateInfo->queryCount;
 
@@ -79,7 +80,7 @@ VkResult pvr_CreateQueryPool(VkDevice _device,
 
    result = pvr_bo_suballoc(&device->suballoc_vis_test,
                             alloc_size,
-                            PVRX(CR_ISP_OCLQRY_BASE_ADDR_ALIGNMENT),
+                            ROGUE_CR_ISP_OCLQRY_BASE_ADDR_ALIGNMENT,
                             false,
                             &pool->result_buffer);
    if (result != VK_SUCCESS)
@@ -276,6 +277,18 @@ void pvr_CmdResetQueryPool(VkCommandBuffer commandBuffer,
    query_info.reset_query_pool.query_count = queryCount;
 
    pvr_add_query_program(cmd_buffer, &query_info);
+}
+
+void pvr_ResetQueryPool(VkDevice _device,
+                        VkQueryPool queryPool,
+                        uint32_t firstQuery,
+                        uint32_t queryCount)
+{
+   PVR_FROM_HANDLE(pvr_query_pool, pool, queryPool);
+   uint32_t *availability =
+      pvr_bo_suballoc_get_map_addr(pool->availability_buffer);
+
+   memset(availability + firstQuery, 0, sizeof(uint32_t) * queryCount);
 }
 
 void pvr_CmdCopyQueryPoolResults(VkCommandBuffer commandBuffer,

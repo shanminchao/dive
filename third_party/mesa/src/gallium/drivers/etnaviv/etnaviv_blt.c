@@ -32,7 +32,6 @@
 #include "etnaviv_emit.h"
 #include "etnaviv_format.h"
 #include "etnaviv_resource.h"
-#include "etnaviv_surface.h"
 #include "etnaviv_translate.h"
 
 #include "util/u_math.h"
@@ -142,6 +141,9 @@ emit_blt_clearimage(struct etna_cmd_stream *stream, const struct blt_clear_op *o
    etna_set_state(stream, VIVS_BLT_COMMAND, VIVS_BLT_COMMAND_COMMAND_CLEAR_IMAGE);
    etna_set_state(stream, VIVS_BLT_SET_COMMAND, 0x00000003);
    etna_set_state(stream, VIVS_BLT_ENABLE, 0x00000000);
+
+   if (DBG_ENABLED(ETNA_DBG_DRAW_STALL))
+      etna_stall(stream, SYNC_RECIPIENT_FE, SYNC_RECIPIENT_PE);
 }
 
 /* Copy (a subset of) an image to another image. */
@@ -187,6 +189,9 @@ emit_blt_copyimage(struct etna_cmd_stream *stream, const struct blt_imgcopy_op *
    etna_set_state(stream, VIVS_BLT_COMMAND, VIVS_BLT_COMMAND_COMMAND_COPY_IMAGE);
    etna_set_state(stream, VIVS_BLT_SET_COMMAND, 0x00000003);
    etna_set_state(stream, VIVS_BLT_ENABLE, 0x00000000);
+
+   if (DBG_ENABLED(ETNA_DBG_DRAW_STALL))
+      etna_stall(stream, SYNC_RECIPIENT_FE, SYNC_RECIPIENT_PE);
 }
 
 /* Emit in-place resolve using BLT. */
@@ -209,38 +214,42 @@ emit_blt_inplace(struct etna_cmd_stream *stream, const struct blt_inplace_op *op
    etna_set_state(stream, VIVS_BLT_COMMAND, 0x00000004);
    etna_set_state(stream, VIVS_BLT_SET_COMMAND, 0x00000003);
    etna_set_state(stream, VIVS_BLT_ENABLE, 0x00000000);
+
+   if (DBG_ENABLED(ETNA_DBG_DRAW_STALL))
+      etna_stall(stream, SYNC_RECIPIENT_FE, SYNC_RECIPIENT_PE);
 }
 
 static void
-etna_blit_clear_color_blt(struct pipe_context *pctx, struct pipe_surface *dst,
+etna_blit_clear_color_blt(struct pipe_context *pctx, unsigned idx,
                       const union pipe_color_union *color)
 {
    struct etna_context *ctx = etna_context(pctx);
-   struct etna_surface *surf = etna_surface(dst);
-   uint64_t new_clear_value = etna_clear_blit_pack_rgba(surf->base.format, color);
+   struct pipe_surface *dst = &ctx->framebuffer_s.cbufs[idx];
+   struct etna_resource *dst_res = etna_resource_get_render_compatible(pctx, dst->texture);
+   struct etna_resource_level *dst_level = &dst_res->levels[dst->level];
+   uint64_t new_clear_value = etna_clear_blit_pack_rgba(dst->format, color);
    int msaa_xscale = 1, msaa_yscale = 1;
 
-   translate_samples_to_xyscale(surf->base.texture->nr_samples,
+   translate_samples_to_xyscale(dst->texture->nr_samples,
                                 &msaa_xscale, &msaa_yscale);
 
-   struct etna_resource *res = etna_resource(surf->base.texture);
    struct blt_clear_op clr = {};
-   clr.dest.addr.bo = res->bo;
-   clr.dest.addr.offset = surf->offset;
+   clr.dest.addr.bo = dst_res->bo;
+   clr.dest.addr.offset = dst_level->offset + dst->first_layer * dst_level->layer_stride;
    clr.dest.addr.flags = ETNA_RELOC_WRITE;
-   clr.dest.bpp = util_format_get_blocksize(surf->base.format);
-   clr.dest.stride = surf->level->stride;
-   clr.dest.tiling = res->layout;
+   clr.dest.bpp = util_format_get_blocksize(dst->format);
+   clr.dest.stride = dst_level->stride;
+   clr.dest.tiling = dst_res->layout;
 
-   if (surf->level->ts_size) {
+   if (dst_level->ts_size) {
       clr.dest.use_ts = 1;
-      clr.dest.ts_addr.bo = res->ts_bo;
-      clr.dest.ts_addr.offset = surf->ts_offset;
+      clr.dest.ts_addr.bo = dst_res->ts_bo;
+      clr.dest.ts_addr.offset = dst_level->ts_offset;
       clr.dest.ts_addr.flags = ETNA_RELOC_WRITE;
       clr.dest.ts_clear_value[0] = new_clear_value;
       clr.dest.ts_clear_value[1] = new_clear_value >> 32;
-      clr.dest.ts_mode = surf->level->ts_mode;
-      clr.dest.ts_compress_fmt = surf->level->ts_compress_fmt;
+      clr.dest.ts_mode = dst_level->ts_mode;
+      clr.dest.ts_compress_fmt = dst_level->ts_compress_fmt;
    }
 
    clr.clear_value[0] = new_clear_value;
@@ -249,28 +258,34 @@ etna_blit_clear_color_blt(struct pipe_context *pctx, struct pipe_surface *dst,
    clr.clear_bits[1] = 0xffffffff;
    clr.rect_x = 0; /* What about scissors? */
    clr.rect_y = 0;
-   clr.rect_w = surf->level->width * msaa_xscale;
-   clr.rect_h = surf->level->height * msaa_yscale;
+   clr.rect_w = dst_level->width * msaa_xscale;
+   clr.rect_h = dst_level->height * msaa_yscale;
 
    emit_blt_clearimage(ctx->stream, &clr);
 
    /* This made the TS valid */
-   if (surf->level->ts_size) {
-      ctx->framebuffer.TS_COLOR_CLEAR_VALUE = new_clear_value;
-      ctx->framebuffer.TS_COLOR_CLEAR_VALUE_EXT = new_clear_value >> 32;
+   if (dst_level->ts_size) {
+      if (idx == 0) {
+         ctx->framebuffer.TS_COLOR_CLEAR_VALUE = new_clear_value;
+         ctx->framebuffer.TS_COLOR_CLEAR_VALUE_EXT = new_clear_value >> 32;
+      } else {
+         ctx->framebuffer.RT_TS_COLOR_CLEAR_VALUE[idx - 1] = new_clear_value;
+         ctx->framebuffer.RT_TS_COLOR_CLEAR_VALUE_EXT[idx - 1] = new_clear_value >> 32;
+      }
 
       /* update clear color in SW meta area of the buffer if TS is exported */
-      if (unlikely(new_clear_value != surf->level->clear_value &&
+      if (unlikely(new_clear_value != dst_level->clear_value &&
           etna_resource_ext_ts(etna_resource(dst->texture))))
-         surf->level->ts_meta->v0.clear_value = new_clear_value;
+         dst_level->ts_meta->v0.clear_value = new_clear_value;
 
-      etna_resource_level_ts_mark_valid(surf->level);
+      etna_resource_level_ts_mark_valid(dst_level);
+      etna_resource_level_mark_unflushed(dst_level);
       ctx->dirty |= ETNA_DIRTY_TS | ETNA_DIRTY_DERIVE_TS;
    }
 
-   surf->level->clear_value = new_clear_value;
-   resource_written(ctx, surf->base.texture);
-   etna_resource_level_mark_changed(surf->level);
+   dst_level->clear_value = new_clear_value;
+   resource_written(ctx, &dst_res->base);
+   etna_resource_level_mark_changed(dst_level);
 }
 
 static void
@@ -278,16 +293,17 @@ etna_blit_clear_zs_blt(struct pipe_context *pctx, struct pipe_surface *dst,
                    unsigned buffers, double depth, unsigned stencil)
 {
    struct etna_context *ctx = etna_context(pctx);
-   struct etna_surface *surf = etna_surface(dst);
-   uint32_t new_clear_value = translate_clear_depth_stencil(surf->base.format, depth, stencil);
+   struct etna_resource *dst_res = etna_resource_get_render_compatible(pctx, dst->texture);
+   struct etna_resource_level *dst_level = &dst_res->levels[dst->level];
+   uint32_t new_clear_value = translate_clear_depth_stencil(dst->format, depth, stencil);
    uint32_t new_clear_bits = 0, clear_bits_depth, clear_bits_stencil;
    int msaa_xscale = 1, msaa_yscale = 1;
 
-   translate_samples_to_xyscale(surf->base.texture->nr_samples,
+   translate_samples_to_xyscale(dst->texture->nr_samples,
                                 &msaa_xscale, &msaa_yscale);
 
    /* Get the channels to clear */
-   switch (surf->base.format) {
+   switch (dst->format) {
    case PIPE_FORMAT_Z16_UNORM:
    case PIPE_FORMAT_X8Z24_UNORM:
       clear_bits_depth = 0xffffffff;
@@ -309,27 +325,26 @@ etna_blit_clear_zs_blt(struct pipe_context *pctx, struct pipe_surface *dst,
 
    /* if all bits are cleared, update TS clear value */
    if (new_clear_bits == 0xffffffff)
-      surf->level->clear_value = new_clear_value;
+      dst_level->clear_value = new_clear_value;
 
    /* TODO unduplicate this */
-   struct etna_resource *res = etna_resource(surf->base.texture);
    struct blt_clear_op clr = {};
-   clr.dest.addr.bo = res->bo;
-   clr.dest.addr.offset = surf->offset;
+   clr.dest.addr.bo = dst_res->bo;
+   clr.dest.addr.offset = dst_level->offset + dst->first_layer * dst_level->layer_stride;
    clr.dest.addr.flags = ETNA_RELOC_WRITE;
-   clr.dest.bpp = util_format_get_blocksize(surf->base.format);
-   clr.dest.stride = surf->level->stride;
-   clr.dest.tiling = res->layout;
+   clr.dest.bpp = util_format_get_blocksize(dst->format);
+   clr.dest.stride = dst_level->stride;
+   clr.dest.tiling = dst_res->layout;
 
-   if (surf->level->ts_size) {
+   if (dst_level->ts_size) {
       clr.dest.use_ts = 1;
-      clr.dest.ts_addr.bo = res->ts_bo;
-      clr.dest.ts_addr.offset = surf->ts_offset;
+      clr.dest.ts_addr.bo = dst_res->ts_bo;
+      clr.dest.ts_addr.offset = dst_level->ts_offset;
       clr.dest.ts_addr.flags = ETNA_RELOC_WRITE;
-      clr.dest.ts_clear_value[0] = surf->level->clear_value;
-      clr.dest.ts_clear_value[1] = surf->level->clear_value;
-      clr.dest.ts_mode = surf->level->ts_mode;
-      clr.dest.ts_compress_fmt = surf->level->ts_compress_fmt;
+      clr.dest.ts_clear_value[0] = dst_level->clear_value;
+      clr.dest.ts_clear_value[1] = dst_level->clear_value;
+      clr.dest.ts_mode = dst_level->ts_mode;
+      clr.dest.ts_compress_fmt = dst_level->ts_compress_fmt;
    }
 
    clr.clear_value[0] = new_clear_value;
@@ -338,20 +353,21 @@ etna_blit_clear_zs_blt(struct pipe_context *pctx, struct pipe_surface *dst,
    clr.clear_bits[1] = new_clear_bits;
    clr.rect_x = 0; /* What about scissors? */
    clr.rect_y = 0;
-   clr.rect_w = surf->level->width * msaa_xscale;
-   clr.rect_h = surf->level->height * msaa_yscale;
+   clr.rect_w = dst_level->width * msaa_xscale;
+   clr.rect_h = dst_level->height * msaa_yscale;
 
    emit_blt_clearimage(ctx->stream, &clr);
 
    /* This made the TS valid */
-   if (surf->level->ts_size) {
-      ctx->framebuffer.TS_DEPTH_CLEAR_VALUE = surf->level->clear_value;
-      etna_resource_level_ts_mark_valid(surf->level);
+   if (dst_level->ts_size) {
+      ctx->framebuffer.TS_DEPTH_CLEAR_VALUE = dst_level->clear_value;
+      etna_resource_level_ts_mark_valid(dst_level);
+      etna_resource_level_mark_unflushed(dst_level);
       ctx->dirty |= ETNA_DIRTY_TS | ETNA_DIRTY_DERIVE_TS;
    }
 
-   resource_written(ctx, surf->base.texture);
-   etna_resource_level_mark_changed(surf->level);
+   resource_written(ctx, &dst_res->base);
+   etna_resource_level_mark_changed(dst_level);
 }
 
 static void
@@ -368,18 +384,23 @@ etna_clear_blt(struct pipe_context *pctx, unsigned buffers, const struct pipe_sc
 
    if (buffers & PIPE_CLEAR_COLOR) {
       for (int idx = 0; idx < ctx->framebuffer_s.nr_cbufs; ++idx) {
-         struct etna_surface *surf = etna_surface(ctx->framebuffer_s.cbufs[idx]);
+         struct pipe_surface *psurf = &ctx->framebuffer_s.cbufs[idx];
 
-         etna_blit_clear_color_blt(pctx, ctx->framebuffer_s.cbufs[idx],
-                               &color[idx]);
+         if (!psurf->texture)
+            continue;
 
-         if (!etna_resource(surf->prsc)->explicit_flush)
-            etna_context_add_flush_resource(ctx, surf->prsc);
+         if (!(buffers & (PIPE_CLEAR_COLOR0 << idx)))
+            continue;
+
+         etna_blit_clear_color_blt(pctx, idx, color);
+
+         if (!etna_resource(psurf->texture)->explicit_flush)
+            etna_context_add_flush_resource(ctx, psurf->texture);
       }
    }
 
-   if ((buffers & PIPE_CLEAR_DEPTHSTENCIL) && ctx->framebuffer_s.zsbuf != NULL)
-      etna_blit_clear_zs_blt(pctx, ctx->framebuffer_s.zsbuf, buffers, depth, stencil);
+   if ((buffers & PIPE_CLEAR_DEPTHSTENCIL) && ctx->framebuffer_s.zsbuf.texture != NULL)
+      etna_blit_clear_zs_blt(pctx, &ctx->framebuffer_s.zsbuf, buffers, depth, stencil);
 
    etna_stall(ctx->stream, SYNC_RECIPIENT_RA, SYNC_RECIPIENT_BLT);
 
@@ -409,8 +430,11 @@ etna_try_blt_blit(struct pipe_context *pctx,
       return false;
 
    /* BLT does not support upscaling */
-   if ((src_xscale < dst_xscale) || (src_yscale < dst_yscale))
+   if ((src_xscale < dst_xscale) || (src_yscale < dst_yscale)) {
+      DBG("upscaling requested: source %dx%d destination %dx%d",
+          src_xscale, src_yscale, dst_xscale, dst_yscale);
       return false;
+   }
 
    if (src_xscale > dst_xscale)
       downsample_x = true;
@@ -443,8 +467,12 @@ etna_try_blt_blit(struct pipe_context *pctx,
     *  - set sRGB bits correctly
     *  - avoid trying to convert between float/int formats?
     */
-   if (blit_info->src.format != blit_info->dst.format)
+   if (blit_info->src.format != blit_info->dst.format) {
+      DBG("non matching formats: %s vs %s",
+          util_format_short_name(blit_info->src.format),
+          util_format_short_name(blit_info->dst.format));
       return false;
+   }
 
    /* try to find a exact format match first */
    uint32_t format = translate_blt_format(blit_info->dst.format);
@@ -453,10 +481,13 @@ etna_try_blt_blit(struct pipe_context *pctx,
     */
    if (format == ETNA_NO_MATCH && !downsample_x && !downsample_y)
       format = etna_compatible_blt_format(blit_info->dst.format);
-   if (format == ETNA_NO_MATCH)
+   if (format == ETNA_NO_MATCH) {
+      DBG("format not supported: %s", util_format_short_name(blit_info->dst.format));
       return false;
+   }
 
    if (blit_info->scissor_enable ||
+       blit_info->swizzle_enable ||
        blit_info->dst.box.depth != blit_info->src.box.depth ||
        blit_info->dst.box.depth != 1) {
       return false;
@@ -470,7 +501,9 @@ etna_try_blt_blit(struct pipe_context *pctx,
     * we can't use inplace resolve path with compression
     */
    if (src == dst) {
-      assert(!memcmp(&blit_info->src, &blit_info->dst, sizeof(blit_info->src)));
+      if (memcmp(&blit_info->src, &blit_info->dst, sizeof(blit_info->src)))
+         return false;
+
       if (!etna_resource_level_ts_valid(src_lev)) /* No TS, no worries */
          return true;
    }
@@ -591,6 +624,32 @@ etna_try_blt_blit(struct pipe_context *pctx,
    return true;
 }
 
+static void
+etna_emit_yuv_tiler_state_blt(struct etna_context *ctx, struct etna_yuv_config *config)
+{
+   struct etna_cmd_stream *stream = ctx->stream;
+
+   etna_set_state(stream, VIVS_BLT_ENABLE, 0x00000001);
+   etna_set_state(stream, VIVS_BLT_YUV_CONFIG,
+                  VIVS_BLT_YUV_CONFIG_SOURCE_FORMAT(config->format) | VIVS_BLT_YUV_CONFIG_ENABLE);
+   etna_set_state(stream, VIVS_BLT_YUV_WINDOW_SIZE,
+                  VIVS_BLT_YUV_WINDOW_SIZE_HEIGHT(config->height) |
+                  VIVS_BLT_YUV_WINDOW_SIZE_WIDTH(config->width));
+
+   etna_yuv_emit_plane(ctx, config->planes[0], ETNA_PENDING_READ, VIVS_BLT_YUV_SRC_YADDR, VIVS_BLT_YUV_SRC_YSTRIDE);
+   etna_yuv_emit_plane(ctx, config->planes[1], ETNA_PENDING_READ, VIVS_BLT_YUV_SRC_UADDR, VIVS_BLT_YUV_SRC_USTRIDE);
+   etna_yuv_emit_plane(ctx, config->planes[2], ETNA_PENDING_READ, VIVS_BLT_YUV_SRC_VADDR, VIVS_BLT_YUV_SRC_VSTRIDE);
+   etna_yuv_emit_plane(ctx, config->dst, ETNA_PENDING_WRITE, VIVS_BLT_YUV_DEST_ADDR, VIVS_BLT_YUV_DEST_STRIDE);
+
+   /* trigger resolve */
+   etna_set_state(stream, VIVS_BLT_SET_COMMAND, 0x00000003);
+   etna_set_state(stream, VIVS_BLT_COMMAND, VIVS_BLT_COMMAND_COMMAND_YUV_TILE);
+   etna_set_state(stream, VIVS_BLT_SET_COMMAND, 0x00000003);
+   etna_set_state(stream, VIVS_BLT_ENABLE, 0x00000000);
+
+   etna_stall(stream, SYNC_RECIPIENT_RA, SYNC_RECIPIENT_BLT);
+}
+
 void
 etna_clear_blit_blt_init(struct pipe_context *pctx)
 {
@@ -599,4 +658,5 @@ etna_clear_blit_blt_init(struct pipe_context *pctx)
    DBG("etnaviv: Using BLT blit engine");
    pctx->clear = etna_clear_blt;
    ctx->blit = etna_try_blt_blit;
+   ctx->emit_yuv_tiler_state = etna_emit_yuv_tiler_state_blt;
 }

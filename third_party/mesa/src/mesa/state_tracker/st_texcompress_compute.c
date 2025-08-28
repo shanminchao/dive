@@ -33,7 +33,7 @@
 #include "main/shaderapi.h"
 #include "main/shaderobj.h"
 #include "main/texcompress_astc.h"
-#include "main/texcompress_astc_luts_wrap.h"
+#include "util/texcompress_astc_luts_wrap.h"
 #include "main/uniforms.h"
 
 #include "state_tracker/st_atom_constbuf.h"
@@ -150,19 +150,19 @@ bind_compute_state(struct st_context *st,
                    bool cs_handle_from_prog,
                    bool constbuf0_from_prog)
 {
-   assert(prog->info.stage == PIPE_SHADER_COMPUTE);
+   assert(prog->info.stage == MESA_SHADER_COMPUTE);
 
    /* Set compute states in the same order as defined in st_atom_list.h */
 
    assert(prog->affected_states & ST_NEW_CS_STATE);
-   assert(st->shader_has_one_variant[PIPE_SHADER_COMPUTE]);
+   assert(st->shader_has_one_variant[MESA_SHADER_COMPUTE]);
    cso_set_compute_shader_handle(st->cso_context,
                                  cs_handle_from_prog ?
                                  prog->variants->driver_shader : NULL);
 
    if (prog->affected_states & ST_NEW_CS_SAMPLER_VIEWS) {
       st->pipe->set_sampler_views(st->pipe, prog->info.stage, 0,
-                                  prog->info.num_textures, 0, false,
+                                  prog->info.num_textures, 0,
                                   sampler_views);
    }
 
@@ -188,11 +188,11 @@ bind_compute_state(struct st_context *st,
    }
 
    if (prog->affected_states & ST_NEW_CS_UBOS) {
-      unreachable("Uniform buffer objects not handled");
+      UNREACHABLE("Uniform buffer objects not handled");
    }
 
    if (prog->affected_states & ST_NEW_CS_ATOMICS) {
-      unreachable("Atomic buffer objects not handled");
+      UNREACHABLE("Atomic buffer objects not handled");
    }
 
    if (prog->affected_states & ST_NEW_CS_SSBOS) {
@@ -217,7 +217,7 @@ dispatch_compute_state(struct st_context *st,
                        unsigned num_workgroups_y,
                        unsigned num_workgroups_z)
 {
-   assert(prog->info.stage == PIPE_SHADER_COMPUTE);
+   assert(prog->info.stage == MESA_SHADER_COMPUTE);
 
    /* Bind the state */
    bind_compute_state(st, prog, sampler_views, shader_buffers, image_views,
@@ -292,7 +292,8 @@ cs_encode_bc1(struct st_context *st,
                         DIV_ROUND_UP(rgba8_tex->width0, 4),
                         DIV_ROUND_UP(rgba8_tex->height0, 4), 1, 1, 0,
                         PIPE_BIND_SHADER_IMAGE |
-                        PIPE_BIND_SAMPLER_VIEW, false);
+                        PIPE_BIND_SAMPLER_VIEW, false,
+                        PIPE_COMPRESSION_FIXED_RATE_NONE);
    if (!bc1_tex)
       goto release_sampler_views;
 
@@ -309,7 +310,7 @@ cs_encode_bc1(struct st_context *st,
                           DIV_ROUND_UP(rgba8_tex->height0, 32), 1);
 
 release_sampler_views:
-   pipe_sampler_view_reference(&rgba8_view, NULL);
+   st->pipe->sampler_view_release(st->pipe, rgba8_view);
 
    return bc1_tex;
 }
@@ -352,7 +353,8 @@ cs_encode_bc4(struct st_context *st,
                         DIV_ROUND_UP(rgba8_tex->width0, 4),
                         DIV_ROUND_UP(rgba8_tex->height0, 4), 1, 1, 0,
                         PIPE_BIND_SHADER_IMAGE |
-                        PIPE_BIND_SAMPLER_VIEW, false);
+                        PIPE_BIND_SAMPLER_VIEW, false,
+                        PIPE_COMPRESSION_FIXED_RATE_NONE);
    if (!bc4_tex)
       goto release_sampler_views;
 
@@ -369,7 +371,7 @@ cs_encode_bc4(struct st_context *st,
                           DIV_ROUND_UP(rgba8_tex->height0, 16));
 
 release_sampler_views:
-   pipe_sampler_view_reference(&rgba8_view, NULL);
+   st->pipe->sampler_view_release(st->pipe, rgba8_view);
 
    return bc4_tex;
 }
@@ -413,7 +415,8 @@ cs_stitch_64bpb_textures(struct st_context *st,
                         tex_hi->width0,
                         tex_hi->height0, 1, 1, 0,
                         PIPE_BIND_SHADER_IMAGE |
-                        PIPE_BIND_SAMPLER_VIEW, false);
+                        PIPE_BIND_SAMPLER_VIEW, false,
+                        PIPE_COMPRESSION_FIXED_RATE_NONE);
    if (!stitched_tex)
       goto release_sampler_views;
 
@@ -430,8 +433,8 @@ cs_stitch_64bpb_textures(struct st_context *st,
                           DIV_ROUND_UP(tex_hi->height0, 8), 1);
 
 release_sampler_views:
-   pipe_sampler_view_reference(&rg32_views[0], NULL);
-   pipe_sampler_view_reference(&rg32_views[1], NULL);
+   st->pipe->sampler_view_release(st->pipe, rg32_views[0]);
+   st->pipe->sampler_view_release(st->pipe, rg32_views[1]);
 
    return stitched_tex;
 }
@@ -478,7 +481,8 @@ sw_decode_astc(struct st_context *st,
    struct pipe_resource *rgba8_tex =
       st_texture_create(st, PIPE_TEXTURE_2D, PIPE_FORMAT_R8G8B8A8_UNORM, 0,
                         width_px, height_px, 1, 1, 0,
-                        PIPE_BIND_SAMPLER_VIEW, false);
+                        PIPE_BIND_SAMPLER_VIEW, false,
+                        PIPE_COMPRESSION_FIXED_RATE_NONE);
    if (!rgba8_tex)
       return NULL;
 
@@ -554,9 +558,12 @@ get_astc_partition_table_view(struct st_context *st,
                               unsigned block_w,
                               unsigned block_h)
 {
+   unsigned lut_width;
+   unsigned lut_height;
    struct pipe_box ptable_box;
    void *ptable_data =
-      _mesa_get_astc_decoder_partition_table(block_w, block_h, &ptable_box);
+      _mesa_get_astc_decoder_partition_table(block_w, block_h, &lut_width, &lut_height);
+   u_box_origin_2d(lut_width, lut_height, &ptable_box);
 
    struct pipe_sampler_view *view =
       util_hash_table_get(st->texcompress_compute.astc_partition_tables,
@@ -569,7 +576,8 @@ get_astc_partition_table_view(struct st_context *st,
       st_texture_create(st, PIPE_TEXTURE_2D, PIPE_FORMAT_R8_UINT, 0,
                         ptable_box.width, ptable_box.height,
                         1, 1, 0,
-                        PIPE_BIND_SAMPLER_VIEW, false);
+                        PIPE_BIND_SAMPLER_VIEW, false,
+                        PIPE_COMPRESSION_FIXED_RATE_NONE);
    if (!res)
       return NULL;
 
@@ -641,7 +649,8 @@ cs_decode_astc(struct st_context *st,
    struct pipe_resource *rgba8_tex =
       st_texture_create(st, PIPE_TEXTURE_2D, PIPE_FORMAT_R8G8B8A8_UNORM, 0,
                         width_px, height_px, 1, 1, 0,
-                        PIPE_BIND_SAMPLER_VIEW, false);
+                        PIPE_BIND_SAMPLER_VIEW, false,
+                        PIPE_COMPRESSION_FIXED_RATE_NONE);
 
    if (!rgba8_tex)
       goto release_payload_view;
@@ -669,7 +678,7 @@ cs_decode_astc(struct st_context *st,
                           1);
 
 release_payload_view:
-   pipe_sampler_view_reference(&payload_view, NULL);
+   st->pipe->sampler_view_release(st->pipe, payload_view);
 
    return rgba8_tex;
 }
@@ -764,13 +773,12 @@ static void
 destroy_astc_decoder(struct st_context *st)
 {
    for (unsigned i = 0; i < ARRAY_SIZE(st->texcompress_compute.astc_luts); i++)
-      pipe_sampler_view_reference(&st->texcompress_compute.astc_luts[i], NULL);
+      st->pipe->sampler_view_release(st->pipe, st->texcompress_compute.astc_luts[i]);
 
    if (st->texcompress_compute.astc_partition_tables) {
       hash_table_foreach(st->texcompress_compute.astc_partition_tables,
                          entry) {
-         pipe_sampler_view_reference(
-            (struct pipe_sampler_view **)&entry->data, NULL);
+         st->pipe->sampler_view_release(st->pipe, entry->data);
       }
    }
 

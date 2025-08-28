@@ -22,14 +22,20 @@
  */
 
 #include "compiler/nir/nir_builder.h"
+#include "blorp_priv.h"
 
 static inline void
 blorp_nir_init_shader(nir_builder *b,
+                      struct blorp_context *blorp,
                       void *mem_ctx,
-                      gl_shader_stage stage,
+                      mesa_shader_stage stage,
                       const char *name)
 {
-   *b = nir_builder_init_simple_shader(stage, NULL, "%s", name ? name : "");
+   const nir_shader_compiler_options *nir_options =
+      blorp->compiler->nir_options(blorp, stage);
+
+   *b = nir_builder_init_simple_shader(stage, nir_options,
+                                       "%s", name ? name : "");
    ralloc_steal(mem_ctx, b->shader);
    if (stage == MESA_SHADER_FRAGMENT)
       b->shader->info.fs.origin_upper_left = true;
@@ -93,7 +99,7 @@ blorp_nir_mcs_is_clear_color(nir_builder *b,
                          nir_ieq_imm(b, nir_channel(b, mcs, 1), ~0));
 
    default:
-      unreachable("Invalid sample count");
+      UNREACHABLE("Invalid sample count");
    }
 }
 
