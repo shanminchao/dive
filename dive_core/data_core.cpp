@@ -756,7 +756,7 @@ void CaptureMetadataCreator::FillDepthState(EventStateInfo::Iterator event_state
     uint32_t rb_stencil_cntl_reg_offset = GetRegOffsetByName("RB_STENCIL_CONTROL");
     if (m_state_tracker.IsRegSet(rb_stencil_cntl_reg_offset))
     {
-        RB_STENCIL_CONTROL rb_stencil_cntl;
+        RB_STENCIL_CNTL rb_stencil_cntl;
         rb_stencil_cntl.u32All = m_state_tracker.GetRegValue(rb_stencil_cntl_reg_offset);
 
         const bool is_stencil_front_enabled = (rb_stencil_cntl.bitfields.STENCIL_ENABLE == 1);

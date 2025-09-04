@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
 cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
 project(dive_core)
@@ -37,9 +36,10 @@ set(PM4_GENERATED_SRC_FILE "${DIVE_CORE_GENERATED_FILE_DIR}/pm4_info.cpp")
 set(PM4_GENERATED_HDR_FILE "${DIVE_CORE_GENERATED_FILE_DIR}/pm4_info.h")
 set(ADRENO_HDR_FILE "${DIVE_CORE_GENERATED_FILE_DIR}/adreno.h")
 set(A6XX_PY_FILE "${DIVE_CORE_GENERATED_FILE_DIR}/a6xx.py")
-set(FREEDRENO_DEVICES_HDR_FILE "${DIVE_CORE_GENERATED_FILE_DIR}/freedreno_devices.h")
-set(FREEDRENO_IR3_ISA_SRC_FILE "${DIVE_CORE_GENERATED_FILE_DIR}/ir3-isa.c")
-set(FREEDRENO_IR3_ISA_HDR_FILE "${DIVE_CORE_GENERATED_FILE_DIR}/ir3-isa.h")
+set(FREEDRENO_ISA_DIRECTORY "${DIVE_CORE_GENERATED_FILE_DIR}/freedreno/isa")
+set(FREEDRENO_DEVICES_HDR_FILE "${FREEDRENO_ISA_DIRECTORY}/freedreno_devices.h")
+set(FREEDRENO_IR3_ISA_SRC_FILE "${FREEDRENO_ISA_DIRECTORY}/ir3-isa.c")
+set(FREEDRENO_IR3_ISA_HDR_FILE "${FREEDRENO_ISA_DIRECTORY}/ir3-isa.h")
 
 
 if(WIN32)
@@ -125,14 +125,14 @@ file(GLOB_RECURSE COMMON_SRC_FILES "${CMAKE_SOURCE_DIR}/dive_core/common/*.cpp")
 
 file(GLOB_RECURSE FREEDRENO_SRC_FILES "${THIRDPARTY_DIRECTORY}/mesa/src/freedreno/common/freedreno_dev_info.c")
 
-include_directories(${THIRDPARTY_DIRECTORY}/Vulkan-Headers/include ${CMAKE_SOURCE_DIR} ${DIVE_CORE_GENERATED_FILE_DIR})
+include_directories(${THIRDPARTY_DIRECTORY}/Vulkan-Headers/include ${CMAKE_SOURCE_DIR} ${DIVE_CORE_GENERATED_FILE_DIR} ${FREEDRENO_ISA_DIRECTORY})
 include_directories(${THIRDPARTY_DIRECTORY}/mesa/src/freedreno/common)
 include_directories(${THIRDPARTY_DIRECTORY}/mesa/src/)
 include_directories(${THIRDPARTY_DIRECTORY}/mesa/include/)
 include_directories(${THIRDPARTY_DIRECTORY}/libarchive/libarchive/)
 
 
-add_definitions(-DLITTLEENDIAN_CPU)     # Required for some PAL files
+add_definitions(-DHAVE_ENDIAN_H)     # Required for freedreno_dev_info.c
 
 add_library(${PROJECT_NAME} STATIC ${HDR_FILES} ${SRC_FILES}
   ${COMMON_HDR_FILES} ${COMMON_SRC_FILES} ${PM4_GENERATED_SRC_FILE} ${NATVIS_FILES} ${FREEDRENO_SRC_FILES})
@@ -141,8 +141,7 @@ add_dependencies(${PROJECT_NAME} adreno_header)
 add_dependencies(${PROJECT_NAME} a6xx_py)
 add_dependencies(${PROJECT_NAME} freedreno_devices_header)
 
-
-
+make_directory("${FREEDRENO_ISA_DIRECTORY}")
 add_custom_command(
       OUTPUT ${FREEDRENO_IR3_ISA_SRC_FILE} ${FREEDRENO_IR3_ISA_HDR_FILE}
       COMMAND ${Python3_EXECUTABLE} ${THIRDPARTY_DIRECTORY}/mesa/src/compiler/isaspec/decode.py
@@ -162,7 +161,7 @@ add_library(freedreno_ir3 STATIC
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/hash_table.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/log.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/os_file.c"
-    "${THIRDPARTY_DIRECTORY}/mesa/src/util/os_misc.c"
+    #"${THIRDPARTY_DIRECTORY}/mesa/src/util/os_misc.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/ralloc.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/simple_mtx.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/softfloat.c"
@@ -234,7 +233,7 @@ if (MSVC)
   target_compile_definitions(${PROJECT_NAME} PUBLIC NOMINMAX)
 else()
   target_compile_options(${PROJECT_NAME} PRIVATE
-    -Wall -Wextra -Werror -Wno-unused-parameter -Wno-missing-braces -Wno-sign-compare -fPIC
+    -Wall -Wextra -Werror -Wno-unused-parameter -Wno-missing-braces -Wno-sign-compare -Wno-ignored-qualifiers -fPIC
     $<$<COMPILE_LANGUAGE:C>:-Wno-override-init>
   )
 endif()

@@ -63,19 +63,46 @@ SyncType Util::GetSyncType(const IMemoryManager &mem_manager,
         // Be more specific with certain ccu operations
         if (packet.bitfields0.EVENT == vgt_event_type::CCU_RESOLVE)
         {
-            uint32_t rb_blit_info_offset = GetRegOffsetByName("RB_BLIT_INFO");
-            if (state_tracker.IsRegSet(rb_blit_info_offset))
+            // RB_RESOLVE_OPERATION
+            uint32_t rb_resolve_operation_offset = GetRegOffsetByName("RB_RESOLVE_OPERATION");
+            if (state_tracker.IsRegSet(rb_resolve_operation_offset))
             {
-                RB_BLIT_INFO rb_blit_info;
-                rb_blit_info.u32All = state_tracker.GetRegValue(rb_blit_info_offset);
-                if (rb_blit_info.bitfields.CLEAR_MASK)
+                RB_RESOLVE_OPERATION rb_resolve_operation;
+                rb_resolve_operation.u32All = state_tracker.GetRegValue(rb_resolve_operation_offset);
+                switch (rb_resolve_operation.bitfields.TYPE)
                 {
-                    DIVE_ASSERT(rb_blit_info.bitfields.GMEM);
+                case BLIT_EVENT_STORE:
+                    if (rb_resolve_operation.bitfields.DEPTH)
+                        type = SyncType::kDepthGmemToSysMemResolve;
+                    else
+                        type = SyncType::kColorGmemToSysMemResolve;
+                    break;
+                case BLIT_EVENT_STORE_AND_CLEAR:
+                    if (rb_resolve_operation.bitfields.DEPTH)
+                        type = SyncType::kDepthSysMemToGmemResolveAndClear;
+                    else
+                        type = SyncType::kColorSysMemToGmemResolveAndClear;
+                    break;
+                case BLIT_EVENT_CLEAR:
+                    if (rb_resolve_operation.bitfields.DEPTH)
+                        type = SyncType::kDepthClearGmem;
+                    else
+                        type = SyncType::kColorClearGmem;
+                    break;
+                case BLIT_EVENT_LOAD:
+                    if (rb_resolve_operation.bitfields.DEPTH)
+                        type = SyncType::k;
+                    else
+                        type = SyncType::k;
+                    break;
+                }
+                {
+                    DIVE_ASSERT(rb_resolve_operation.bitfields.GMEM);
                     type = SyncType::kClearGmem;
                 }
                 else
                 {
-                    if (rb_blit_info.bitfields.GMEM)
+                    if (rb_resolve_operation.bitfields.GMEM)
                         type = SyncType::kSysMemToGmemResolve;
                     else
                         type = SyncType::kGmemToSysMemResolve;
