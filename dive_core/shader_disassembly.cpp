@@ -23,10 +23,8 @@
 #    include <stdio.h>
 #    include <stdlib.h>
 #endif
-extern "C"
-{
+
 #include "third_party/mesa/src/freedreno/common/disasm.h"
-}
 
 namespace Dive
 {
