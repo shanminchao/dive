@@ -132,8 +132,9 @@ include_directories(${THIRDPARTY_DIRECTORY}/mesa/src/)
 include_directories(${THIRDPARTY_DIRECTORY}/mesa/include/)
 include_directories(${THIRDPARTY_DIRECTORY}/libarchive/libarchive/)
 
-
-add_definitions(-DHAVE_ENDIAN_H)     # Required for freedreno_dev_info.c
+if(NOT MSVC)
+  add_definitions(-DHAVE_ENDIAN_H)     # Required for freedreno_dev_info.c on Linux
+endif()
 
 add_library(${PROJECT_NAME} STATIC ${HDR_FILES} ${SRC_FILES}
   ${COMMON_HDR_FILES} ${COMMON_SRC_FILES} ${PM4_GENERATED_SRC_FILE} ${NATVIS_FILES} ${FREEDRENO_SRC_FILES})
@@ -190,6 +191,7 @@ if(MSVC)
   target_compile_definitions(freedreno_ir3 PRIVATE
       -DHAVE_STRUCT_TIMESPEC
   )
+  set_property(TARGET freedreno_ir3 PROPERTY C_STANDARD 11)
   target_sources(freedreno_ir3 PRIVATE "${THIRDPARTY_DIRECTORY}/mesa/src/util/google_dive_ext.c")
   set_target_properties(freedreno_ir3 PROPERTIES FOLDER "freedreno")
 else()
