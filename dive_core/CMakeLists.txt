@@ -158,18 +158,22 @@ add_custom_command(
 add_library(freedreno_ir3 STATIC
     ${FREEDRENO_IR3_ISA_SRC_FILE}
     "${THIRDPARTY_DIRECTORY}/mesa/src/freedreno/ir3/disasm-a3xx.c"
+    "${THIRDPARTY_DIRECTORY}/mesa/src/compiler/isaspec/isaspec.c"
+    "${THIRDPARTY_DIRECTORY}/mesa/src/util/blob.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/half_float.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/hash_table.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/log.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/os_file.c"
-    #"${THIRDPARTY_DIRECTORY}/mesa/src/util/os_misc.c"
+    "${THIRDPARTY_DIRECTORY}/mesa/src/util/os_misc.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/ralloc.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/simple_mtx.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/softfloat.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/u_call_once.c"
+    "${THIRDPARTY_DIRECTORY}/mesa/src/util/u_cpu_detect.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/u_debug.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/u_printf.c"
     "${THIRDPARTY_DIRECTORY}/mesa/src/util/u_process.c"
+    "${THIRDPARTY_DIRECTORY}/mesa/src/util/u_thread.c"
 )
 
 target_include_directories(freedreno_ir3 PRIVATE
@@ -180,23 +184,26 @@ target_include_directories(freedreno_ir3 PRIVATE
     "${THIRDPARTY_DIRECTORY}/mesa/src/freedreno"
     "${THIRDPARTY_DIRECTORY}/mesa/src/freedreno/common"
     "${THIRDPARTY_DIRECTORY}/mesa/src/freedreno/isa"
-    "${THIRDPARTY_DIRECTORY}/mesa/src/util/ralloc.c"
 )
 
 if(MSVC)
-target_compile_definitions(freedreno_ir3 PRIVATE
-    -DHAVE_STRUCT_TIMESPEC
-)
-set_property(TARGET freedreno_ir3 PROPERTY C_STANDARD 11)
-target_sources(freedreno_ir3 PRIVATE "${THIRDPARTY_DIRECTORY}/mesa/src/util/google_dive_ext.c")
-set_target_properties(freedreno_ir3 PROPERTIES FOLDER "freedreno")
+  target_compile_definitions(freedreno_ir3 PRIVATE
+      -DHAVE_STRUCT_TIMESPEC
+  )
+  set_property(TARGET freedreno_ir3 PROPERTY C_STANDARD 11)
+  target_sources(freedreno_ir3 PRIVATE "${THIRDPARTY_DIRECTORY}/mesa/src/util/google_dive_ext.c")
+  set_target_properties(freedreno_ir3 PROPERTIES FOLDER "freedreno")
 else()
-target_compile_definitions(freedreno_ir3 PRIVATE
-    -DHAVE_ENDIAN_H
-    -DHAVE_FUNC_ATTRIBUTE_PACKED
-    -DHAVE_STRUCT_TIMESPEC
-    -DHAVE_PTHREAD
-)
+#set_source_files_properties(PROPERTIES LANGUAGE CXX
+  target_compile_definitions(freedreno_ir3 PRIVATE
+      -DHAVE_ENDIAN_H
+      -DHAVE_FUNC_ATTRIBUTE_PACKED
+      -DHAVE_STRUCT_TIMESPEC
+      -DHAVE_PTHREAD
+      -DHAVE_SYSCONF
+      -D_GNU_SOURCE
+      -DHAVE_SECURE_GETENV
+  )
 endif()
 
 target_compile_options(freedreno_ir3 PRIVATE -fPIC)
@@ -205,7 +212,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE freedreno_ir3)
 
 # This is linked privately because gfxr contains X11 headers that contain preprocessor macros which cause collisions
 # gfxr_decode_ext_lib itself can't link gfxrecon_decode privately because it's a dependency of a target (gfxrecon-replay) that doesn't specify PRIVATE/PUBLIC 
-target_link_libraries(${PROJECT_NAME} PRIVATE 
+target_link_libraries(${PROJECT_NAME} PRIVATE
     gfxr_decode_ext_lib
 )
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -224,6 +231,12 @@ if(WIN32)
   target_link_libraries(${PROJECT_NAME} PRIVATE ${ZLIB_LIBRARIES} -static)
 endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE ${LibArchive_LIBRARIES} ${PEFFETTO_TRACE_READER_LIB})
+
+# This is needed in u_debug.h in mesa, which is included by shader_disassembly.cpp
+check_function_exists(secure_getenv HAVE_SECURE_GETENV)
+if (HAVE_SECURE_GETENV)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE -DHAVE_SECURE_GETENV)
+endif()
 
 include_directories(${LibArchive_INCLUDE_DIRS})
 if (MSVC)

@@ -60,10 +60,8 @@ SyncType Util::GetSyncType(const IMemoryManager &mem_manager,
         DIVE_VERIFY(mem_manager.RetrieveMemoryData(&packet, submit_index, addr, sizeof(packet)));
         SyncType type = SyncType::kNone;
 
-        // Be more specific with certain ccu operations
         if (packet.bitfields0.EVENT == vgt_event_type::CCU_RESOLVE)
         {
-            // RB_RESOLVE_OPERATION
             uint32_t rb_resolve_operation_offset = GetRegOffsetByName("RB_RESOLVE_OPERATION");
             if (state_tracker.IsRegSet(rb_resolve_operation_offset))
             {
@@ -79,9 +77,9 @@ SyncType Util::GetSyncType(const IMemoryManager &mem_manager,
                     break;
                 case BLIT_EVENT_STORE_AND_CLEAR:
                     if (rb_resolve_operation.bitfields.DEPTH)
-                        type = SyncType::kDepthSysMemToGmemResolveAndClear;
+                        type = SyncType::kDepthGmemToSysMemResolveAndClear;
                     else
-                        type = SyncType::kColorSysMemToGmemResolveAndClear;
+                        type = SyncType::kColorGmemToSysMemResolveAndClear;
                     break;
                 case BLIT_EVENT_CLEAR:
                     if (rb_resolve_operation.bitfields.DEPTH)
@@ -91,21 +89,10 @@ SyncType Util::GetSyncType(const IMemoryManager &mem_manager,
                     break;
                 case BLIT_EVENT_LOAD:
                     if (rb_resolve_operation.bitfields.DEPTH)
-                        type = SyncType::k;
+                        type = SyncType::kDepthSysMemToGmemResolve;
                     else
-                        type = SyncType::k;
+                        type = SyncType::kColorSysMemToGmemResolve;
                     break;
-                }
-                {
-                    DIVE_ASSERT(rb_resolve_operation.bitfields.GMEM);
-                    type = SyncType::kClearGmem;
-                }
-                else
-                {
-                    if (rb_resolve_operation.bitfields.GMEM)
-                        type = SyncType::kSysMemToGmemResolve;
-                    else
-                        type = SyncType::kGmemToSysMemResolve;
                 }
             }
         }
@@ -170,11 +157,9 @@ std::string Util::GetEventString(const IMemoryManager &mem_manager,
         }
         else if (packet.bitfields0.SOURCE_SELECT == DI_SRC_SEL_DMA)  // Indexed draw
         {
-            uint64_t addr = ((uint64_t)packet.bitfields5.INDX_BASE_HI << 32) |
-                            (uint64_t)packet.bitfields4.INDX_BASE_LO;
             string_stream << "NumInstances:" << packet.bitfields1.NUM_INSTANCES << ","
                           << "NumIndices:" << packet.bitfields2.NUM_INDICES << ","
-                          << "IndexBase:" << std::hex << "0x" << addr << ")";
+                          << "IndexBase:" << std::hex << "0x" << packet.INDX_BASE << ")";
         }
         else
         {
@@ -272,12 +257,10 @@ std::string Util::GetEventString(const IMemoryManager &mem_manager,
     {
         PM4_CP_EXEC_CS_INDIRECT packet;
         DIVE_VERIFY(mem_manager.RetrieveMemoryData(&packet, submit_index, va_addr, sizeof(packet)));
-        uint64_t addr = ((uint64_t)packet.bitfields2.ADDR_HI << 32) |
-                        (uint64_t)packet.bitfields1.ADDR_LO;
-        string_stream << "ExecCsIndirect(x:" << packet.bitfields3.LOCALSIZEX << ","
-                      << "y:" << packet.bitfields3.LOCALSIZEY << ","
-                      << "z:" << packet.bitfields3.LOCALSIZEZ << ","
-                      << "Addr:" << std::hex << "0x" << addr << std::dec << ")";
+        string_stream << "ExecCsIndirect(x:" << packet.bitfields2.LOCALSIZEX << ","
+                      << "y:" << packet.bitfields2.LOCALSIZEY << ","
+                      << "z:" << packet.bitfields2.LOCALSIZEZ << ","
+                      << "Addr:" << std::hex << "0x" << packet.ADDR << std::dec << ")";
     }
     else if (opcode == CP_EXEC_CS)
     {
@@ -331,17 +314,37 @@ std::string Util::GetEventString(const IMemoryManager &mem_manager,
                                                va_addr,
                                                opcode,
                                                state_tracker);
-        if (sync_type == SyncType::kSysMemToGmemResolve)
+        if (sync_type == SyncType::kColorSysMemToGmemResolve)
         {
-            string_stream << "Resolve(SysMem-To-Gmem)";
+            string_stream << "Resolve(Color,SysMem-To-Gmem)";
         }
-        else if (sync_type == SyncType::kGmemToSysMemResolve)
+        else if (sync_type == SyncType::kColorGmemToSysMemResolve)
         {
-            string_stream << "Resolve(GMem-To-Sysmem)";
+            string_stream << "Resolve(Color,Gmem-To-SysMem)";
         }
-        else if (sync_type == SyncType::kClearGmem)
+        else if (sync_type == SyncType::kColorGmemToSysMemResolveAndClear)
         {
-            string_stream << "Resolve(ClearGmem)";
+            string_stream << "Resolve(Color,Gmem-To-SysMem,ClearGmem)";
+        }
+        else if (sync_type == SyncType::kColorClearGmem)
+        {
+            string_stream << "Resolve(Color,ClearGmem)";
+        }
+        else if (sync_type == SyncType::kDepthSysMemToGmemResolve)
+        {
+            string_stream << "Resolve(Depth,SysMem-To-Gmem)";
+        }
+        else if (sync_type == SyncType::kDepthGmemToSysMemResolve)
+        {
+            string_stream << "Resolve(Depth,Gmem-To-SysMem)";
+        }
+        else if (sync_type == SyncType::kDepthGmemToSysMemResolveAndClear)
+        {
+            string_stream << "Resolve(Depth,Gmem-To-SysMem,ClearGmem)";
+        }
+        else if (sync_type == SyncType::kDepthClearGmem)
+        {
+            string_stream << "Resolve(Depth,ClearGmem)";
         }
         else
         {

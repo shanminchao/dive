@@ -57,7 +57,8 @@ struct ShaderReference
 enum class RenderModeType
 {
     kDirect,
-    kBinning,
+    kBinningVis,
+    kBinningDirect,
     kTiled,
     kResolve,
     kDispatch,
@@ -90,8 +91,14 @@ struct EventInfo
         kDraw,
         kDispatch,
         kBlit,
-        kSysmemToGmemResolve,
-        kGmemToSysmemResolve,
+        kColorSysMemToGmemResolve,
+        kColorGmemToSysMemResolve,
+        kColorGmemToSysMemResolveAndClear,
+        kColorClearGmem,
+        kDepthSysMemToGmemResolve,
+        kDepthGmemToSysMemResolve,
+        kDepthGmemToSysMemResolveAndClear,
+        kDepthClearGmem,
         kClearGmem,
         kSync
     };
@@ -111,12 +118,12 @@ enum class SyncType
 
     // Various configurations of a resolve/clear
     kColorSysMemToGmemResolve,
-    kColorSysMemToGmemResolveAndClear,
     kColorGmemToSysMemResolve,
+    kColorGmemToSysMemResolveAndClear,
     kColorClearGmem,
     kDepthSysMemToGmemResolve,
-    kDepthSysMemToGmemResolveAndClear,
     kDepthGmemToSysMemResolve,
+    kDepthGmemToSysMemResolveAndClear,
     kDepthClearGmem,
 
     kWaitMemWrites,
