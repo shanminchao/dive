@@ -56,7 +56,7 @@ VkResult pvr_wsi_init(struct pvr_physical_device *pdevice)
    if (result != VK_SUCCESS)
       return result;
 
-   pdevice->wsi_device.supports_modifiers = true;
+   pdevice->wsi_device.supports_modifiers = false;
    pdevice->vk.wsi_device = &pdevice->wsi_device;
 
    return VK_SUCCESS;
@@ -75,9 +75,7 @@ VkResult pvr_QueuePresentKHR(VkQueue _queue,
    VkResult result;
 
    result = wsi_common_queue_present(&queue->device->pdevice->wsi_device,
-                                     pvr_device_to_handle(queue->device),
-                                     _queue,
-                                     0,
+                                     &queue->vk,
                                      pPresentInfo);
    if (result != VK_SUCCESS)
       return result;
