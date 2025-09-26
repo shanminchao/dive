@@ -57,7 +57,8 @@ struct ShaderReference
 enum class RenderModeType
 {
     kDirect,
-    kBinning,
+    kBinningVis,
+    kBinningDirect,
     kTiled,
     kResolve,
     kDispatch,
@@ -90,8 +91,14 @@ struct EventInfo
         kDraw,
         kDispatch,
         kBlit,
-        kSysmemToGmemResolve,
-        kGmemToSysmemResolve,
+        kColorSysMemToGmemResolve,
+        kColorGmemToSysMemResolve,
+        kColorGmemToSysMemResolveAndClear,
+        kColorClearGmem,
+        kDepthSysMemToGmemResolve,
+        kDepthGmemToSysMemResolve,
+        kDepthGmemToSysMemResolveAndClear,
+        kDepthClearGmem,
         kClearGmem,
         kSync
     };
@@ -110,10 +117,14 @@ enum class SyncType
     kEventWriteEnd = vgt_event_type::CACHE_INVALIDATE7,
 
     // Various configurations of a resolve/clear
-    // Interpreted versions of a vgt_event_type::CCU_RESOLVE
-    kSysMemToGmemResolve,
-    kGmemToSysMemResolve,
-    kClearGmem,
+    kColorSysMemToGmemResolve,
+    kColorGmemToSysMemResolve,
+    kColorGmemToSysMemResolveAndClear,
+    kColorClearGmem,
+    kDepthSysMemToGmemResolve,
+    kDepthGmemToSysMemResolve,
+    kDepthGmemToSysMemResolveAndClear,
+    kDepthClearGmem,
 
     kWaitMemWrites,
     kWaitForIdle,
