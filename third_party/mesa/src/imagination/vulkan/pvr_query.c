@@ -27,6 +27,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <vulkan/vulkan.h>
 
 #include "pvr_bo.h"
@@ -68,7 +69,7 @@ VkResult pvr_CreateQueryPool(VkDevice _device,
       return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
 
    pool->result_stride =
-      ALIGN_POT(query_size, PVRX(CR_ISP_OCLQRY_BASE_ADDR_ALIGNMENT));
+      ALIGN_POT(query_size, ROGUE_CR_ISP_OCLQRY_BASE_ADDR_ALIGNMENT);
 
    pool->query_count = pCreateInfo->queryCount;
 
@@ -79,7 +80,7 @@ VkResult pvr_CreateQueryPool(VkDevice _device,
 
    result = pvr_bo_suballoc(&device->suballoc_vis_test,
                             alloc_size,
-                            PVRX(CR_ISP_OCLQRY_BASE_ADDR_ALIGNMENT),
+                            ROGUE_CR_ISP_OCLQRY_BASE_ADDR_ALIGNMENT,
                             false,
                             &pool->result_buffer);
    if (result != VK_SUCCESS)
@@ -266,6 +267,7 @@ void pvr_CmdResetQueryPool(VkCommandBuffer commandBuffer,
 {
    PVR_FROM_HANDLE(pvr_cmd_buffer, cmd_buffer, commandBuffer);
    struct pvr_query_info query_info;
+   VkResult result;
 
    PVR_CHECK_COMMAND_BUFFER_BUILDING_STATE(cmd_buffer);
 
@@ -275,7 +277,52 @@ void pvr_CmdResetQueryPool(VkCommandBuffer commandBuffer,
    query_info.reset_query_pool.first_query = firstQuery;
    query_info.reset_query_pool.query_count = queryCount;
 
-   pvr_add_query_program(cmd_buffer, &query_info);
+   /* make the query-reset program wait for previous geom/frag,
+    * to not overwrite them
+    */
+   result = pvr_cmd_buffer_start_sub_cmd(cmd_buffer, PVR_SUB_CMD_TYPE_EVENT);
+   if (result != VK_SUCCESS)
+      return;
+
+   cmd_buffer->state.current_sub_cmd->event = (struct pvr_sub_cmd_event){
+      .type = PVR_EVENT_TYPE_BARRIER,
+      .barrier = {
+         .wait_for_stage_mask = PVR_PIPELINE_STAGE_ALL_GRAPHICS_BITS,
+         .wait_at_stage_mask = PVR_PIPELINE_STAGE_QUERY_BIT,
+      },
+   };
+
+   /* add the query-program itself */
+   result = pvr_add_query_program(cmd_buffer, &query_info);
+   if (result != VK_SUCCESS)
+      return;
+
+   /* make future geom/frag wait for the query-reset program to
+    * reset the counters to 0
+    */
+   result = pvr_cmd_buffer_start_sub_cmd(cmd_buffer, PVR_SUB_CMD_TYPE_EVENT);
+   if (result != VK_SUCCESS)
+      return;
+
+   cmd_buffer->state.current_sub_cmd->event = (struct pvr_sub_cmd_event){
+      .type = PVR_EVENT_TYPE_BARRIER,
+      .barrier = {
+         .wait_for_stage_mask = PVR_PIPELINE_STAGE_QUERY_BIT,
+         .wait_at_stage_mask = PVR_PIPELINE_STAGE_ALL_GRAPHICS_BITS,
+      },
+   };
+}
+
+void pvr_ResetQueryPool(VkDevice _device,
+                        VkQueryPool queryPool,
+                        uint32_t firstQuery,
+                        uint32_t queryCount)
+{
+   PVR_FROM_HANDLE(pvr_query_pool, pool, queryPool);
+   uint32_t *availability =
+      pvr_bo_suballoc_get_map_addr(pool->availability_buffer);
+
+   memset(availability + firstQuery, 0, sizeof(uint32_t) * queryCount);
 }
 
 void pvr_CmdCopyQueryPoolResults(VkCommandBuffer commandBuffer,
@@ -324,7 +371,7 @@ void pvr_CmdCopyQueryPoolResults(VkCommandBuffer commandBuffer,
       .type = PVR_EVENT_TYPE_BARRIER,
       .barrier = {
          .wait_for_stage_mask = PVR_PIPELINE_STAGE_TRANSFER_BIT,
-         .wait_at_stage_mask = PVR_PIPELINE_STAGE_OCCLUSION_QUERY_BIT,
+         .wait_at_stage_mask = PVR_PIPELINE_STAGE_QUERY_BIT,
       },
    };
 
@@ -341,7 +388,7 @@ void pvr_CmdCopyQueryPoolResults(VkCommandBuffer commandBuffer,
    cmd_buffer->state.current_sub_cmd->event = (struct pvr_sub_cmd_event){
       .type = PVR_EVENT_TYPE_BARRIER,
       .barrier = {
-         .wait_for_stage_mask = PVR_PIPELINE_STAGE_OCCLUSION_QUERY_BIT,
+         .wait_for_stage_mask = PVR_PIPELINE_STAGE_QUERY_BIT,
          .wait_at_stage_mask = PVR_PIPELINE_STAGE_TRANSFER_BIT,
       },
    };
