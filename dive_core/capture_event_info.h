@@ -24,7 +24,6 @@
 namespace Dive
 {
 
-
 //--------------------------------------------------------------------------------------------------
 // Helper functions
 namespace Util
@@ -48,6 +47,7 @@ enum class EventType : uint8_t
     kWaitForMe,
     kEventWriteStart,
     kEventWriteEnd,
+    kUnknown
 };
 
 bool IsEvent(const IMemoryManager &mem_manager,
@@ -138,6 +138,38 @@ struct EventInfo
 
     RenderModeType m_render_mode = RenderModeType::kUnknown;
     std::string    m_str;
+
+    static bool IsResolve(Util::EventType type)
+    {
+        switch (type)
+        {
+        case Util::EventType::kColorSysMemToGmemResolve:
+        case Util::EventType::kColorGmemToSysMemResolve:
+        case Util::EventType::kColorGmemToSysMemResolveAndClear:
+        case Util::EventType::kDepthSysMemToGmemResolve:
+        case Util::EventType::kDepthGmemToSysMemResolve:
+        case Util::EventType::kDepthGmemToSysMemResolveAndClear:
+        case Util::EventType::kSysmemToGmemResolve:
+            return true;
+        default:
+            break;
+        }
+        return false;
+    }
+    static bool IsGmemClear(Util::EventType type)
+    {
+        switch (type)
+        {
+        case Util::EventType::kColorGmemToSysMemResolveAndClear:
+        case Util::EventType::kColorClearGmem:
+        case Util::EventType::kDepthGmemToSysMemResolveAndClear:
+        case Util::EventType::kDepthClearGmem:
+            return true;
+        default:
+            break;
+        }
+        return false;
+    }
 };
 
 }  // namespace Dive

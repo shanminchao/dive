@@ -144,7 +144,7 @@ Util::EventType Util::GetEventType(const IMemoryManager &mem_manager,
                                    uint32_t              opcode,
                                    EmulateStateTracker  &state_tracker)
 {
-    EventType type;
+    EventType type = EventType::kUnknown;
     if (IsDrawEventOpcode(opcode))
     {
         type = EventType::kDraw;
