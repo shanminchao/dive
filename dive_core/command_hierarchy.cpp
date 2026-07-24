@@ -1847,7 +1847,7 @@ void CommandHierarchyCreator::AppendLoadStateExtBufferNode(const IMemoryManager&
             if (packet.bitfields0.STATE_TYPE == ST6_SHADER)
                 AppendSharps("A6XX_TEX_SAMP", bindless ? 16 : sizeof(A6XX_TEX_SAMP));
             else if (packet.bitfields0.STATE_TYPE == ST6_CONSTANTS)
-                AppendSharps("A6XX_TEX_CONST", sizeof(A6XX_TEX_CONST));
+                AppendSharps("A6XX_TEX_MEMOBJ", sizeof(A6XX_TEX_MEMOBJ));
             else if (packet.bitfields0.STATE_TYPE == ST6_UBO)
                 AppendSharps("A6XX_UBO", bindless ? 16 : sizeof(A6XX_UBO));
             break;
@@ -1873,12 +1873,12 @@ void CommandHierarchyCreator::AppendLoadStateExtBufferNode(const IMemoryManager&
             else if (packet.bitfields0.STATE_TYPE == ST6_UAV)
             {
                 DIVE_ASSERT(packet.bitfields0.STATE_BLOCK == SB6_CS_SHADER);
-                AppendSharps("A6XX_TEX_CONST", sizeof(A6XX_TEX_CONST));
+                AppendSharps("A6XX_TEX_MEMOBJ", sizeof(A6XX_TEX_MEMOBJ));
             }
             break;
         case StateBlockCat::kUAV:
             if (packet.bitfields0.STATE_TYPE == ST6_SHADER)
-                AppendSharps("A6XX_TEX_CONST", bindless ? 16 : sizeof(A6XX_TEX_CONST));
+                AppendSharps("A6XX_TEX_MEMOBJ", bindless ? 16 : sizeof(A6XX_TEX_MEMOBJ));
             else if (packet.bitfields0.STATE_TYPE == ST6_CONSTANTS)
             {
                 // NUM_UNIT is in unit of 2 dwords

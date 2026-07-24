@@ -444,7 +444,8 @@ by a particular renderpass/blit.
 	<reg32 offset="0x091e" name="CP_ROQ_AVAIL_VSD" type="a6xx_cp_roq_avail" variants="A8XX-"/>
 
 	<bitset name="a7xx_aperture_cntl" inline="yes">
-		<bitfield name="PIPE" low="12" high="13" type="adreno_pipe"/>
+		<!-- GOOGLE: adreno_pipe needs 4 bits! This is incorrect. Disable --> 
+		<!-- <bitfield name="PIPE" low="12" high="13" type="adreno_pipe"/> -->
 		<bitfield name="CLUSTER" low="8" high="10" type="a7xx_cluster"/>
 		<bitfield name="CONTEXT" low="4" high="5"/>
 	</bitset>
@@ -2477,7 +2478,8 @@ by a particular renderpass/blit.
 	<reg32 offset="0x8872" name="RB_DEPTH_BUFFER_INFO" variants="A6XX" type="a6xx_depth_buffer_info" usage="draw"/>
 	<!-- first 4 bits duplicates GRAS_SU_DEPTH_BUFFER_INFO -->
 	<reg32 offset="0x8872" name="RB_DEPTH_BUFFER_INFO" type="a6xx_depth_buffer_info" variants="A7XX-" usage="draw">
-		<bitfield name="PRT" low="3" high="4"/>
+		<!-- GOOGLE: PRT field overlaps with a6xx_depth_buffer_info's READONLY field. Disable! -->
+		<!-- <bitfield name="PRT" low="3" high="4"/> -->
 		<bitfield name="TILEMODE" low="5" high="6" type="a6xx_tile_mode"/>
 		<bitfield name="LOSSLESSCOMPEN" pos="7" type="boolean"/>
 	</reg32>
@@ -4410,7 +4412,8 @@ by a particular renderpass/blit.
 		<bitfield name="CONTEXT" low="26" high="30"/>
 		<bitfield name="SLICE" low="21" high="25"/>
 		<bitfield name="LOCATION" low="18" high="20" type="a7xx_state_location"/>
-		<bitfield name="PIPE" low="16" high="17" type="adreno_pipe"/>
+		<!-- GOOGLE: adreno_pipe needs 4 bits! This is incorrect. Disable --> 
+		<!-- <bitfield name="PIPE" low="16" high="17" type="adreno_pipe"/> -->
 		<bitfield name="STATETYPE" low="8" high="15" type="a7xx_statetype_id"/>
 		<bitfield name="USPTP" low="4" high="7"/>
 		<bitfield name="SPTP" low="0" high="3"/>
@@ -4489,7 +4492,8 @@ by a particular renderpass/blit.
 
 	<bitset name="a6xx_tpl1_mode_cntl" inline="yes">
 		<bitfield name="ISAMMODE" low="0" high="1" type="a6xx_isam_mode"/>
-		<bitfield name="TEXCOORDROUNDMODE" pos="2" type="a6xx_coord_round"/>
+		<!-- GOOGLE: Not sure why this a6xx_coord_round is 1-bit. Disable this field. -->
+		<!-- <bitfield name="TEXCOORDROUNDMODE" pos="2" type="a6xx_coord_round"/> -->
 		<bitfield name="ARRAYCOORDROUNDMODE" low="3" high="4" type="a6xx_coord_round"/>
 		<bitfield name="NEARESTMIPSNAP" pos="5" type="a6xx_nearest_mode"/>
 		<bitfield name="SAMPLEREPLICATE" pos="6" type="boolean"/>
