@@ -1563,9 +1563,14 @@ void CommandHierarchyCreator::AppendRegNodes(const IMemoryManager& mem_manager,
         const RegInfo* reg_info_ptr = GetRegInfo(reg_offset);
 
         RegInfo temp = {};
-        temp.m_name = "Unknown";
-        temp.m_enum_handle = UINT8_MAX;
-        if (reg_info_ptr == nullptr) reg_info_ptr = &temp;
+        std::ostringstream reg_string_stream;
+        if (reg_info_ptr == nullptr)
+        {
+            reg_string_stream << "Unknown " << " 0x" << std::hex << reg_offset << std::dec;
+            temp.m_name = reg_string_stream.str().c_str();
+            temp.m_enum_handle = UINT8_MAX;
+            reg_info_ptr = &temp;
+        }
 
         uint32_t size_to_read = sizeof(uint32_t);
         if (reg_info_ptr->m_is_64_bit) size_to_read = sizeof(uint64_t);
